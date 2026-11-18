@@ -19,8 +19,8 @@ RACINE = Path(__file__).resolve().parent.parent
 URL = "ws://127.0.0.1:8765/ws"
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 # même réglage que la page web : réserve au début de chaque réponse, puis après un trou
-TAMPON_DEBUT = float(sys.argv[2]) if len(sys.argv) > 2 else 0.5
-TAMPON_REPRISE = 0.3
+TAMPON_DEBUT = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
+TAMPON_REPRISE = 0.5
 SORTIE = RACINE / "models" / "sorties_pipeline"
 
 

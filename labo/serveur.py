@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import queue
+import re
 import secrets
 import struct
 import sys
@@ -62,6 +63,7 @@ VAD_SEUIL = 0.5
 SILENCE_FIN = float(os.environ.get("AQUAPHONE_SILENCE", "0.5"))  # silence qui clôt la phrase (s)
 PAROLE_MIN = 0.3  # en dessous : bruit, ignoré (s)
 PRE_ROLL = 0.3  # audio gardé avant le début détecté (s)
+GARDE_ECHO = 0.6  # s de micro ignoré après la fin de lecture signalée par la page (anti-écho)
 ATTENTE_SUITE = 1.2  # phrase transcrite inachevée (« je voudrais savoir... ») : délai pour la reprise (s)
 PROMPT_STT = "Aquaphone. Un client parle à l'assistant de son pisciniste : piscine, chlore choc, pH, iopool."
 
@@ -85,10 +87,11 @@ FENETRE_16 = (3 + 5 + 2) * 640 + 80  # fenêtre HuBERT : 3 images passées, 5 co
 PAS_16 = BLOC_IMAGES * 640
 BLOCS_VIDANGE = 8  # silence ajouté en fin de réponse pour sortir les dernières images
 AVANCE_MIN = 0.8  # s d'audio d'avance sous laquelle on insère un silence (évite les coupures)
-LARGEUR_VIDEO = 540
+LARGEUR_VIDEO = int(os.environ.get("AQUAPHONE_LARGEUR", "480"))  # largeur de la vidéo envoyée (px)
 QUALITE_JPEG = 80
-SOURCE = RACINE / "models" / "visage_pierre_960.jpg"
-PAS_DIFFUSION = int(os.environ.get("AQUAPHONE_PAS", "3"))  # étapes du modèle de mouvement (Ditto)
+HAUTEUR_SOURCE = int(os.environ.get("AQUAPHONE_HAUTEUR", "720"))  # photo sur laquelle le visage est recollé
+SOURCE = RACINE / "models" / f"visage_pierre_{HAUTEUR_SOURCE}.jpg"
+PAS_DIFFUSION = int(os.environ.get("AQUAPHONE_PAS", "5"))  # étapes du modèle de mouvement (Ditto)
 
 
 def log(*a):
@@ -181,6 +184,20 @@ class Ecoute:
             resultat = (self.en_suspens[0], self.en_suspens[1], True)  # pas de suite : on répond
             self.en_suspens = None
         return resultat
+
+
+def _mots(texte):
+    return re.findall(r"\w+", texte.lower())
+
+
+def est_echo(texte, dit):
+    """Vrai si la phrase entendue reprend surtout ce que l'assistant vient de dire (haut-parleur → micro)."""
+    entendus = _mots(texte)
+    if len(entendus) < 2 or not dit:
+        return False
+    prononces = set(_mots(" ".join(dit)))
+    communs = sum(m in prononces for m in entendus)
+    return communs / len(entendus) >= 0.7
 
 
 # ─── Visage : Ditto alimenté en continu ──────────────────────────────────────
@@ -316,10 +333,15 @@ class Session:
         self.occupe = False
         self.parole_signalee = False
         self.retenu = None  # micro reçu pendant la transcription (rejoué si la phrase est inachevée)
+        self.sourd_jusqua = 0.0  # anti-écho : micro ignoré jusqu'à cet instant
+        self.t_pret = 0.0  # fin de la dernière lecture côté page
+        self.dit_recemment = collections.deque(maxlen=12)  # dernières phrases prononcées (filtre d'écho)
         self.mesures = {}
 
     # ─ fil de la boucle asyncio ─
     def micro(self, pcm):
+        if time.perf_counter() < self.sourd_jusqua:
+            return
         if self.occupe:
             if self.retenu is not None:
                 self.retenu.append(pcm)
@@ -394,6 +416,13 @@ class Session:
                 self.envoyer({"type": "etat", "etat": "ecoute"})
                 self.reprendre()
                 return
+            debut_parole = t_fin - len(audio) / 16000 if audio is not None else 0.0
+            if texte and debut_parole < self.t_pret + 2.0 and est_echo(texte, self.dit_recemment):
+                log(f"Écho de la réponse ignoré : « {texte} »")
+                self.mesures.pop(rid, None)
+                self.reprendre()
+                self.envoyer({"type": "etat", "etat": "ecoute"})
+                return
             ancien = self.mode
             self.mode, texte = mode_labo.detecter(texte, self.mode)
             if self.mode != ancien:
@@ -436,6 +465,7 @@ class Session:
                 if isinstance(p, Exception):
                     raise p
                 reponse.append(p)
+                self.dit_recemment.append(p)
                 self.envoyer({"type": "phrase", "texte": p})
                 for morceau, sr, _ in TTS.generate_voice_clone_streaming(
                         text=p, language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE, chunk_size=TTS_CHUNK):
@@ -557,6 +587,8 @@ async def websocket(request):
             elif d["type"] == "pret":
                 s.cloturer(d.get("rid"))
                 s.reprendre()
+                s.t_pret = time.perf_counter()
+                s.sourd_jusqua = s.t_pret + GARDE_ECHO
                 s.envoyer({"type": "etat", "etat": "ecoute"})
             elif d["type"] == "texte" and not s.occupe and d.get("texte", "").strip():
                 s.occupe = True
@@ -592,7 +624,8 @@ def charger():
     if not SOURCE.exists():
         img = cv2.imread(str(RACINE / "assets" / "visage_pierre.jpg"))
         h, w = img.shape[:2]
-        cv2.imwrite(str(SOURCE), cv2.resize(img, (round(w * 960 / h), 960), interpolation=cv2.INTER_AREA))
+        cv2.imwrite(str(SOURCE), cv2.resize(img, (round(w * HAUTEUR_SOURCE / h), HAUTEUR_SOURCE),
+                                           interpolation=cv2.INTER_AREA))
     sdk = StreamSDK(str(RACINE / "models/ditto/ditto_cfg/v0.4_hubert_cfg_pytorch.pkl"),
                     str(RACINE / "models/ditto/ditto_pytorch"))
     # torch.compile dans le fil principal (dans les fils de Ditto, la compilation se bloque).

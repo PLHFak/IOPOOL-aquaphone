@@ -63,8 +63,9 @@ const photo = new Image();
 photo.onload = () => g.drawImage(photo, 0, 0, ecran.width, ecran.height);
 photo.src = 'photo.jpg';
 
-const TAMPON_DEBUT = 0.5;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
-const TAMPON_REPRISE = 0.3;    // s de réserve après un trou
+const TAMPON_DEBUT = 1.0;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
+const TAMPON_REPRISE = 0.5;
+const GARDE_ECHO = 0.6;        // s de micro coupé après la fin du son joué    // s de réserve après un trou
 let ctx = null, ws = null, lecture = 0, images = [], ridCourant = -1, ligneIA = null;
 
 const ETATS = { ecoute: 'Je vous écoute…', entendu: 'Je vous entends…', reflexion: 'Je réfléchis…', parle: 'Je vous réponds…' };
@@ -110,7 +111,12 @@ document.getElementById('demarrer').onclick = async (e) => {
     const noeud = new AudioWorkletNode(ctx, 'micro');
     const muet = ctx.createGain(); muet.gain.value = 0;
     ctx.createMediaStreamSource(flux).connect(noeud).connect(muet).connect(ctx.destination);
-    noeud.port.onmessage = (m) => { if (ws && ws.readyState === 1) ws.send(m.data); };
+    // Anti-écho : la page sait exactement quand le haut-parleur joue → micro coupé pendant la lecture
+    // et GARDE_ECHO secondes après (réverbération, latence de sortie du son).
+    noeud.port.onmessage = (m) => {
+      if (ctx.currentTime < lecture + (ctx.outputLatency || 0) + GARDE_ECHO) return;
+      if (ws && ws.readyState === 1) ws.send(m.data);
+    };
   } catch (err) {
     etat('erreur', 'Micro indisponible : ' + err.message + ' (la saisie au clavier reste possible)');
   }
