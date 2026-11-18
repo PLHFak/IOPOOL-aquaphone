@@ -120,3 +120,30 @@ Qualité / ressemblance : **à regarder par Pierre** — `models/sorties_visage/
 | **Total estimé (hors VAD et réseau)** | **~1,6 s** |
 
 Pistes pour passer sous 1,5 s : lancer la voix sur le **début** de la 1re phrase (premiers mots), réduire le préchauffage de Ditto (`chunksize`), envoyer le son et l'image ensemble dès la 1re image.
+
+## Briques 5 et 6 — Pipeline de bout en bout + page web (18/11/2026)
+
+Serveur `labo/serveur.py` (aiohttp, 127.0.0.1:8765) + page `labo/web/index.html`, publiée en HTTPS
+sur le tailnet par `tailscale serve`. Micro du navigateur en PCM 16 kHz par WebSocket ; retour en
+paquets « 1 image JPEG 540×720 + ses 40 ms d'audio 24 kHz » (synchro lèvres/son par construction).
+Fin de parole : Silero VAD en flux (0,5 s de silence). Semi-duplex : le micro est ignoré pendant la réponse.
+
+Test sans navigateur (`labo/test_pipeline.py`, cas de test dit par la voix clonée, joué en temps réel) :
+
+| Étape (ms) | Essai 1 | Essai 2 | Essai 3 |
+|---|---|---|---|
+| Attente du silence (VAD) | 454 | 472 | 500 |
+| Transcription | 277 | 412 | 275 |
+| Claude Sonnet, 1re phrase | 898 | 942 | 757 |
+| Voix, 1er son | 217 | 216 | 217 |
+| Visage, 1re image | 1240 | 1164 | 1242 |
+| Tampon de lecture | 153 | 152 | 143 |
+| **Total fin de parole → réponse** | **3240** | **3358** | **3133** |
+| Coupures pendant la réponse | 7 (1,2 s) | 7 (1,5 s) | 7 (1,1 s) |
+
+Constats :
+- Le visage coûte 1,2 s en flux réel (contre 0,5 s en test isolé, où tout l'audio était déjà là) :
+  Ditto attend ~0,6 s d'audio (fenêtre HuBERT + lot de 10 images) avant la 1re image.
+- Voix et visage en même temps sur la carte : Ditto tombe à ~20 images/s → coupures.
+- Corrigé : recompilation `torch.compile` dans les fils de Ditto (garde « num_threads ») qui bloquait tout.
+- Essayé sans succès : flux CUDA prioritaire pour Ditto (plus aucune image produite).

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aquaphone labo</title>
+<style>
+  :root { --fond:#0c1a22; --carte:#14262f; --texte:#e7f0f4; --doux:#8ca4b0; --accent:#29b2bf; --alerte:#e0795c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fond); color:var(--texte); font:16px/1.4 -apple-system, system-ui, sans-serif;
+         display:flex; flex-direction:column; align-items:center; padding:0 16px 32px; }
+  #scene { position:relative; width:min(100%, 440px); aspect-ratio:3/4; margin-top:12px; border-radius:16px;
+           overflow:hidden; background:#000; }
+  canvas { width:100%; height:100%; display:block; }
+  #etat { position:absolute; left:0; right:0; bottom:0; padding:10px 14px; font-weight:600;
+          background:linear-gradient(transparent, rgba(0,0,0,.75)); }
+  #etat .point { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; background:var(--doux); }
+  #etat.ecoute .point { background:var(--accent); }
+  #etat.entendu .point { background:#5cd67a; }
+  #etat.reflexion .point, #etat.parle .point { background:#f2c14e; }
+  #etat.erreur .point { background:var(--alerte); }
+  .bloc { width:min(100%, 440px); }
+  button { font:inherit; font-weight:600; border:0; border-radius:12px; padding:14px 18px; color:#062027;
+           background:var(--accent); cursor:pointer; }
+  #demarrer { width:100%; margin-top:14px; font-size:18px; }
+  form { display:flex; gap:8px; margin-top:12px; }
+  input { flex:1; min-width:0; font:inherit; padding:12px; border-radius:12px; border:1px solid #2b4350;
+          background:var(--carte); color:var(--texte); }
+  #journal p { margin:8px 0; padding:10px 12px; border-radius:12px; background:var(--carte); }
+  #journal p.vous { border-left:3px solid var(--doux); }
+  #journal p.ia { border-left:3px solid var(--accent); }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; font-variant-numeric:tabular-nums; }
+  td { padding:4px 6px; border-bottom:1px solid #22363f; }
+  td:last-child { text-align:right; }
+  tr.total td { font-weight:700; color:var(--accent); }
+  .note { color:var(--doux); font-size:13px; }
+</style>
+</head>
+<body>
+<div id="scene">
+  <canvas id="ecran" width="540" height="720"></canvas>
+  <div id="etat"><span class="point"></span><span id="etat-texte">Appuyez sur « Démarrer »</span></div>
+</div>
+<div class="bloc">
+  <button id="demarrer">Démarrer (micro + son)</button>
+  <form id="saisie"><input id="question" placeholder="…ou tapez une question" autocomplete="off"><button>Envoyer</button></form>
+  <table id="mesures"></table>
+  <div id="journal"></div>
+  <p class="note">Labo Aquaphone — vous parlez à une IA (assistant de Marc). Parlez, puis marquez une courte pause.</p>
+</div>
+<script>
+const ecran = document.getElementById('ecran'), g = ecran.getContext('2d');
+const etatEl = document.getElementById('etat'), etatTexte = document.getElementById('etat-texte');
+const journal = document.getElementById('journal'), tableau = document.getElementById('mesures');
+const photo = new Image();
+photo.onload = () => g.drawImage(photo, 0, 0, ecran.width, ecran.height);
+photo.src = 'photo.jpg';
+
+const TAMPON = 0.15;           // s de marge à la réception (gigue réseau)
+let ctx = null, ws = null, lecture = 0, images = [], ridCourant = -1, ligneIA = null;
+
+const ETATS = { ecoute: 'Je vous écoute…', entendu: 'Je vous entends…', reflexion: 'Je réfléchis…', parle: 'Je vous réponds…' };
+function etat(cle, texte) { etatEl.className = cle; etatTexte.textContent = texte || ETATS[cle] || cle; }
+function envoyer(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function ligne(classe, texte) {
+  const p = document.createElement('p'); p.className = classe; p.textContent = texte;
+  journal.prepend(p); return p;
+}
+
+// Micro → 16 kHz mono PCM 16 bits, par paquets de 20 ms (rééchantillonnage linéaire dans un AudioWorklet)
+const CODE_MICRO = `
+class Micro extends AudioWorkletProcessor {
+  constructor() { super(); this.r = sampleRate / 16000; this.p = 0; this.prev = 0; this.b = new Int16Array(320); this.n = 0; }
+  process(entrees) {
+    const x = entrees[0] && entrees[0][0]; if (!x) return true;
+    const L = x.length;
+    while (this.p < L) {
+      const i = Math.floor(this.p), f = this.p - i;
+      const a = i === 0 ? this.prev : x[i - 1], b = x[i];
+      const v = Math.max(-1, Math.min(1, a + (b - a) * f));
+      this.b[this.n++] = v * 32767;
+      if (this.n === 320) { this.port.postMessage(this.b.buffer, [this.b.buffer]); this.b = new Int16Array(320); this.n = 0; }
+      this.p += this.r;
+    }
+    this.p -= L; this.prev = x[L - 1];
+    return true;
+  }
+}
+registerProcessor('micro', Micro);`;
+
+document.getElementById('demarrer').onclick = async (e) => {
+  if (!navigator.mediaDevices || !window.isSecureContext) {
+    etat('erreur', 'Page non sécurisée : ouvrez l’adresse https://…ts.net'); return;
+  }
+  e.target.disabled = true;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  ctx.resume();
+  try {
+    const flux = await navigator.mediaDevices.getUserMedia(
+      { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([CODE_MICRO], { type: 'application/javascript' })));
+    const noeud = new AudioWorkletNode(ctx, 'micro');
+    const muet = ctx.createGain(); muet.gain.value = 0;
+    ctx.createMediaStreamSource(flux).connect(noeud).connect(muet).connect(ctx.destination);
+    noeud.port.onmessage = (m) => { if (ws && ws.readyState === 1) ws.send(m.data); };
+  } catch (err) {
+    etat('erreur', 'Micro indisponible : ' + err.message + ' (la saisie au clavier reste possible)');
+  }
+  e.target.style.display = 'none';
+  connecter();
+  requestAnimationFrame(dessiner);
+};
+
+document.getElementById('saisie').onsubmit = (e) => {
+  e.preventDefault();
+  const q = document.getElementById('question');
+  if (!ctx) { document.getElementById('demarrer').click(); }
+  setTimeout(() => { envoyer({ type: 'texte', texte: q.value }); q.value = ''; }, ws ? 0 : 800);
+};
+
+function connecter() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = (e) => typeof e.data === 'string' ? message(JSON.parse(e.data)) : paquet(e.data);
+  ws.onclose = () => { etat('erreur', 'Connexion perdue — reconnexion…'); setTimeout(connecter, 1500); };
+}
+
+// Paquet binaire : [type u8][0][n u16][rid u32][réservé u32] + n échantillons 24 kHz int16 + image JPEG
+function paquet(buf) {
+  const v = new DataView(buf);
+  if (v.getUint8(0) !== 1) return;
+  const n = v.getUint16(2, true), rid = v.getUint32(4, true);
+  const pcm = new Int16Array(buf, 12, n);
+  const ab = ctx.createBuffer(1, n, 24000), d = ab.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = pcm[i] / 32768;
+  if (lecture < ctx.currentTime + 0.02) lecture = ctx.currentTime + TAMPON;   // début ou trou : on recale
+  const s = ctx.createBufferSource(); s.buffer = ab; s.connect(ctx.destination); s.start(lecture);
+  const img = { t: lecture, bmp: null };
+  images.push(img);
+  createImageBitmap(new Blob([new Uint8Array(buf, 12 + 2 * n)], { type: 'image/jpeg' })).then((b) => { img.bmp = b; });
+  if (rid !== ridCourant) {
+    ridCourant = rid;
+    setTimeout(() => envoyer({ type: 'lecture', rid }), Math.max(0, (lecture - ctx.currentTime) * 1000));
+  }
+  lecture += n / 24000;
+}
+
+// Affiche l'image dont l'instant est atteint par le son réellement entendu
+function dessiner() {
+  const t = ctx.currentTime - (ctx.outputLatency || 0);
+  while (images.length > 1 && images[1].t <= t && images[1].bmp) {
+    const x = images.shift(); if (x.bmp && x.bmp.close) x.bmp.close();
+  }
+  const im = images[0];
+  if (im && im.t <= t && im.bmp && !im.vu) { g.drawImage(im.bmp, 0, 0, ecran.width, ecran.height); im.vu = true; }
+  requestAnimationFrame(dessiner);
+}
+
+const LIBELLES = [
+  ['attente_silence_vad', 'Attente du silence (fin de phrase)'],
+  ['transcription', 'Transcription (Whisper)'],
+  ['claude_1re_phrase', 'Claude : 1re phrase'],
+  ['voix_1er_son', 'Voix : 1er son'],
+  ['visage_1re_image', 'Visage : 1re image'],
+  ['reseau_et_tampon', 'Réseau + tampon'],
+  ['total_percu', 'Total fin de parole → réponse'],
+];
+function message(m) {
+  switch (m.type) {
+    case 'etat': etat(m.etat); break;
+    case 'transcription': ligne('vous', 'Vous : ' + m.texte); ligneIA = null; break;
+    case 'phrase':
+      if (!ligneIA) ligneIA = ligne('ia', 'IA : ');
+      ligneIA.textContent += m.texte + ' '; break;
+    case 'fin':
+      setTimeout(() => envoyer({ type: 'pret', rid: m.rid }),
+                 Math.max(0, (lecture - ctx.currentTime) * 1000) + 300);
+      break;
+    case 'mesures':
+      tableau.innerHTML = LIBELLES.map(([k, l]) =>
+        `<tr class="${k === 'total_percu' ? 'total' : ''}"><td>${l}</td><td>${m[k] == null ? '—' : m[k] + ' ms'}</td></tr>`).join('');
+      break;
+    case 'erreur': etat('erreur', 'Erreur : ' + m.texte); break;
+  }
+}
+</script>
+</body>
+</html>
