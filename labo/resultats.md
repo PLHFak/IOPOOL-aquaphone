@@ -147,3 +147,23 @@ Constats :
 - Voix et visage en même temps sur la carte : Ditto tombe à ~20 images/s → coupures.
 - Corrigé : recompilation `torch.compile` dans les fils de Ditto (garde « num_threads ») qui bloquait tout.
 - Essayé sans succès : flux CUDA prioritaire pour Ditto (plus aucune image produite).
+
+### Correctifs « ça bloque » (18/11/2026)
+
+Constat sur les essais de Pierre (page web via Tailscale) : son qui se fige par moments, et une réponse
+donnée à une phrase coupée (« Bonjour, je voudrais savoir comment je peux... »).
+
+| Réglage (cas de test, 3 essais) | Coupures | Durée des coupures | 1re image | Total perçu |
+|---|---|---|---|---|
+| Avant : visage 5 étapes, tampon 0,15 s | 7 à 13 | 1,2 à 1,9 s | 1,1 à 1,4 s | 3,1 à 3,4 s |
+| Tampon 0,5 s seul | 6 | 2,2 s | 1,2 s | 3,5 s |
+| Tampon 1,0 s seul | 3 à 6 | 1,1 à 1,8 s | 1,2 à 1,4 s | 4,0 s |
+| **Visage 3 étapes + tampon 0,5 s** | **0 à 5 (moy. 2)** | **0 à 1,8 s (moy. 0,7)** | **1,0 à 1,2 s** | **3,2 à 3,4 s** |
+
+- Le tampon seul ne suffit pas : le déficit vient de la carte graphique partagée voix + visage pendant
+  toute la réponse. Visage allégé (`AQUAPHONE_PAS=3`, étapes du modèle de mouvement Ditto) : seul,
+  ~38 images/s au lieu de ~30 → assez de marge la plupart du temps.
+- Phrase inachevée : si la transcription finit par « ... », on attend la suite (1,2 s max) et on recolle
+  les deux morceaux avant de répondre ; le micro reçu pendant la transcription est rejoué.
+- À surveiller : naturel du visage à 3 étapes (avis de Pierre), légère variation du timbre d'une phrase
+  à l'autre (voix générée phrase par phrase).

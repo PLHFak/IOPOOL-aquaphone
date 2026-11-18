@@ -56,7 +56,8 @@ const photo = new Image();
 photo.onload = () => g.drawImage(photo, 0, 0, ecran.width, ecran.height);
 photo.src = 'photo.jpg';
 
-const TAMPON = 0.15;           // s de marge à la réception (gigue réseau)
+const TAMPON_DEBUT = 0.5;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
+const TAMPON_REPRISE = 0.3;    // s de réserve après un trou
 let ctx = null, ws = null, lecture = 0, images = [], ridCourant = -1, ligneIA = null;
 
 const ETATS = { ecoute: 'Je vous écoute…', entendu: 'Je vous entends…', reflexion: 'Je réfléchis…', parle: 'Je vous réponds…' };
@@ -133,7 +134,8 @@ function paquet(buf) {
   const pcm = new Int16Array(buf, 12, n);
   const ab = ctx.createBuffer(1, n, 24000), d = ab.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = pcm[i] / 32768;
-  if (lecture < ctx.currentTime + 0.02) lecture = ctx.currentTime + TAMPON;   // début ou trou : on recale
+  if (rid !== ridCourant) lecture = Math.max(lecture, ctx.currentTime + TAMPON_DEBUT);          // nouvelle réponse
+  else if (lecture < ctx.currentTime + 0.02) lecture = ctx.currentTime + TAMPON_REPRISE;     // trou : on recale
   const s = ctx.createBufferSource(); s.buffer = ab; s.connect(ctx.destination); s.start(lecture);
   const img = { t: lecture, bmp: null };
   images.push(img);

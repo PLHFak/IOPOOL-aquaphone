@@ -17,8 +17,10 @@ import soundfile as sf
 
 RACINE = Path(__file__).resolve().parent.parent
 URL = "ws://127.0.0.1:8765/ws"
-TAMPON = 0.15
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+# même réglage que la page web : réserve au début de chaque réponse, puis après un trou
+TAMPON_DEBUT = float(sys.argv[2]) if len(sys.argv) > 2 else 0.5
+TAMPON_REPRISE = 0.3
 SORTIE = RACINE / "models" / "sorties_pipeline"
 
 
@@ -46,16 +48,15 @@ async def essai(i):
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.BINARY:
                 n, rid = struct.unpack_from("<HI", msg.data, 2)
-                if t_lecture is None:
-                    t_lecture = time.perf_counter() + TAMPON
-                    asyncio.get_running_loop().call_later(
-                        TAMPON, lambda r=rid: asyncio.ensure_future(ws.send_str(json.dumps({"type": "lecture", "rid": r}))))
                 now = time.perf_counter()
-                if lecture < now + 0.02:
-                    if lecture:
-                        coupures += 1
-                        trou += now + TAMPON - lecture
-                    lecture = now + TAMPON
+                if t_lecture is None:
+                    t_lecture = lecture = now + TAMPON_DEBUT
+                    asyncio.get_running_loop().call_later(
+                        TAMPON_DEBUT, lambda r=rid: asyncio.ensure_future(ws.send_str(json.dumps({"type": "lecture", "rid": r}))))
+                elif lecture < now + 0.02:
+                    coupures += 1
+                    trou += now + TAMPON_REPRISE - lecture
+                    lecture = now + TAMPON_REPRISE
                 lecture += n / 24000
                 sons.append(np.frombuffer(msg.data, "<i2", n, 12))
                 images.append(msg.data[12 + 2 * n:])

@@ -59,6 +59,7 @@ VAD_SEUIL = 0.5
 SILENCE_FIN = float(os.environ.get("AQUAPHONE_SILENCE", "0.5"))  # silence qui clôt la phrase (s)
 PAROLE_MIN = 0.3  # en dessous : bruit, ignoré (s)
 PRE_ROLL = 0.3  # audio gardé avant le début détecté (s)
+ATTENTE_SUITE = 1.2  # phrase transcrite inachevée (« je voudrais savoir... ») : délai pour la reprise (s)
 PROMPT_STT = "Un client parle à l'assistant de son pisciniste : piscine, chlore choc, pH, iopool."
 
 # Voix
@@ -84,6 +85,7 @@ AVANCE_MIN = 0.8  # s d'audio d'avance sous laquelle on insère un silence (évi
 LARGEUR_VIDEO = 540
 QUALITE_JPEG = 80
 SOURCE = RACINE / "models" / "visage_pierre_960.jpg"
+PAS_DIFFUSION = int(os.environ.get("AQUAPHONE_PAS", "3"))  # étapes du modèle de mouvement (Ditto)
 
 
 def log(*a):
@@ -114,7 +116,11 @@ class Vad:
 
 
 class Ecoute:
-    """Reçoit le micro par petits morceaux ; rend (audio de la phrase, instant de fin de parole)."""
+    """Reçoit le micro par petits morceaux ; rend (audio de la phrase, instant de fin de parole, complète).
+
+    Une phrase transcrite inachevée est mise « en suspens » : si le client reprend la parole,
+    la suite y est recollée ; sinon on répond quand même au bout de ATTENTE_SUITE.
+    """
 
     def __init__(self):
         self.vad = Vad()
@@ -127,6 +133,17 @@ class Ecoute:
         self.phrase = []
         self.n_parole = self.n_silence = 0
         self.t_fin = None
+        self.en_suspens = None  # (audio, t_fin, instant de la mise en suspens)
+
+    def suspendre(self, audio, t_fin):
+        self.reset()
+        self.en_suspens = (audio, t_fin, time.perf_counter())
+
+    def _avec_suspens(self, audio, t_fin):
+        if self.en_suspens is None:
+            return audio, t_fin, False
+        avant, self.en_suspens = self.en_suspens[0], None
+        return np.concatenate([avant, np.zeros(int(0.2 * 16000), np.float32), audio]), t_fin, True
 
     @property
     def en_parole(self):
@@ -153,9 +170,13 @@ class Ecoute:
                 self.n_silence += 1
                 if self.n_silence * 512 / 16000 >= SILENCE_FIN:
                     if self.n_parole * 512 / 16000 >= PAROLE_MIN:
-                        resultat = (np.concatenate(self.phrase), self.t_fin)
+                        resultat = self._avec_suspens(np.concatenate(self.phrase), self.t_fin)
                     self.phrase, self.n_parole, self.n_silence = [], 0, 0
                     self.avant.clear()
+        if (resultat is None and self.en_suspens and not self.phrase
+                and time.perf_counter() - self.en_suspens[2] > ATTENTE_SUITE):
+            resultat = (self.en_suspens[0], self.en_suspens[1], True)  # pas de suite : on répond
+            self.en_suspens = None
         return resultat
 
 
@@ -285,7 +306,39 @@ class Session:
         self.ecoute = Ecoute()
         self.occupe = False
         self.parole_signalee = False
+        self.retenu = None  # micro reçu pendant la transcription (rejoué si la phrase est inachevée)
         self.mesures = {}
+
+    # ─ fil de la boucle asyncio ─
+    def micro(self, pcm):
+        if self.occupe:
+            if self.retenu is not None:
+                self.retenu.append(pcm)
+            return  # semi-duplex : on n'écoute pas pendant que l'assistant parle
+        res = self.ecoute.ajouter(pcm)
+        if self.ecoute.en_parole and not self.parole_signalee:
+            self.parole_signalee = True
+            self.envoyer({"type": "etat", "etat": "entendu"})
+            # pendant que le client parle : ouvrir la connexion HTTPS vers l'API (−0,5 s au 1er appel)
+            self.loop.run_in_executor(None, rechauffer_claude)
+        if res:
+            audio, t_fin, complet = res
+            log(f"Fin de parole détectée ({len(audio) / 16000:.1f} s d'audio)")
+            self.occupe, self.retenu = True, []
+            self.envoyer({"type": "etat", "etat": "reflexion"})
+            self.loop.run_in_executor(EXEC, self.traiter, audio, t_fin, None, complet)
+
+    def suspendre(self, audio, t_fin):
+        retenu, self.retenu = self.retenu or [], None
+        self.ecoute.suspendre(audio, t_fin)
+        self.parole_signalee = False
+        self.occupe = False
+        self.envoyer({"type": "etat", "etat": "ecoute"})
+        for pcm in retenu:  # ce que le client a dit pendant la transcription
+            self.micro(pcm)
+
+    def ne_plus_retenir(self):
+        self.retenu = None
 
     def envoyer(self, msg):  # depuis n'importe quel fil
         self.loop.call_soon_threadsafe(self.file.put_nowait, msg)
@@ -307,7 +360,7 @@ class Session:
     def fin(self, rid):
         self.envoyer({"type": "fin", "rid": rid})
 
-    def traiter(self, audio, t_fin, texte=None):
+    def traiter(self, audio, t_fin, texte=None, complet=True):
         """Fil « gpu » : transcription → Claude (fil séparé) → voix → visage."""
         rid = next(COMPTEUR)
         m = {"rid": rid, "t_fin": t_fin, "t_decision": time.perf_counter()}
@@ -320,6 +373,12 @@ class Session:
                 texte = " ".join(s.text.strip() for s in segments).strip()
                 m["duree_parole"] = len(audio) / 16000
             m["t_stt"] = time.perf_counter()
+            if not complet and texte.endswith(("...", "…")):
+                log(f"Phrase inachevée, j'attends la suite : « {texte} »")
+                self.mesures.pop(rid, None)
+                self.loop.call_soon_threadsafe(self.suspendre, audio, t_fin)
+                return
+            self.loop.call_soon_threadsafe(self.ne_plus_retenir)
             m["question"] = texte
             log(f"Réponse {rid} — question : « {texte} »")
             if not texte:
@@ -375,6 +434,7 @@ class Session:
     def reprendre(self):
         self.ecoute.reset()
         self.parole_signalee = False
+        self.retenu = None
         self.occupe = False
 
     def cloturer(self, rid):
@@ -437,19 +497,7 @@ async def websocket(request):
     s.envoyer({"type": "etat", "etat": "ecoute"})
     async for msg in ws:
         if msg.type == WSMsgType.BINARY:
-            if s.occupe:
-                continue  # semi-duplex : on n'écoute pas pendant que l'assistant parle
-            res = s.ecoute.ajouter(np.frombuffer(msg.data, "<i2").astype(np.float32) / 32768)
-            if s.ecoute.en_parole and not s.parole_signalee:
-                s.parole_signalee = True
-                s.envoyer({"type": "etat", "etat": "entendu"})
-                # pendant que le client parle : ouvrir la connexion HTTPS vers l'API (−0,5 s au 1er appel)
-                loop.run_in_executor(None, rechauffer_claude)
-            if res:
-                log(f"Fin de parole détectée ({len(res[0]) / 16000:.1f} s d'audio)")
-                s.occupe = True
-                s.envoyer({"type": "etat", "etat": "reflexion"})
-                loop.run_in_executor(EXEC, s.traiter, *res)
+            s.micro(np.frombuffer(msg.data, "<i2").astype(np.float32) / 32768)
         elif msg.type == WSMsgType.TEXT:
             d = json.loads(msg.data)
             if d["type"] == "lecture":
@@ -512,7 +560,7 @@ def charger():
     sdk.decode_f3d(sdk.warp_f3d(f3d, kp, kp))
     sortie = RACINE / "models" / "sorties_visage"
     sortie.mkdir(parents=True, exist_ok=True)
-    sdk.setup(str(SOURCE), str(sortie / "serveur.mp4"), online_mode=True, overlap_v2=70, sampling_timesteps=5)
+    sdk.setup(str(SOURCE), str(sortie / "serveur.mp4"), online_mode=True, overlap_v2=70, sampling_timesteps=PAS_DIFFUSION)
     try:
         sdk.writer.close() if hasattr(sdk.writer, "close") else None
     except Exception:
