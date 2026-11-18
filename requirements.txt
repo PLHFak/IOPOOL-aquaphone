@@ -20,4 +20,4 @@ soundfile==0.14.0
 torch==2.11.0+cu128
 torchaudio==2.11.0+cu128
 transformers==5.15.1
-triton-windows==3.6.0.post26
+triton-windows==3.6.0.post26; sys_platform == "win32"  # sous Linux, triton vient avec torch

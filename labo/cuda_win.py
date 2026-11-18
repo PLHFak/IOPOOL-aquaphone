@@ -15,6 +15,6 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 try:
     import onnxruntime
 
-    onnxruntime.preload_dlls(directory="")
-except ImportError:
+    onnxruntime.preload_dlls(directory="")  # Windows : DLL de PyTorch ; Linux : bibliothèques CUDA de pip
+except (ImportError, AttributeError, OSError):
     pass

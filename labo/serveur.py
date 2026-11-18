@@ -77,6 +77,9 @@ REF_TEXTE = (
 )
 TTS_CHUNK = 4
 TAILLE_VOIX = os.environ.get("AQUAPHONE_VOIX", "1.7B")  # 1.7B ou 0.6B
+# Carte graphique de la voix et de la transcription. Le visage (Ditto) reste sur la carte 0.
+# PC labo (1 carte) : 0. Machine à 2 cartes (RunPod) : 1 → la voix ne ralentit plus le visage.
+GPU_VOIX = int(os.environ.get("AQUAPHONE_GPU_VOIX", "0"))
 
 # Visage : 1 image = 40 ms = 960 échantillons à 24 kHz = 640 à 16 kHz
 IPS = 25
@@ -216,6 +219,7 @@ class Visage:
         self.n_reponse = 0
         self.silences = 0
         self.t_premiere = {}
+        self.t_derniere, self.n_images = {}, {}  # diagnostic : cadence réelle du visage par réponse
         self.fins = set()
         self.images = collections.deque()
         self.buf16 = np.zeros(3 * 640, np.float32)  # contexte initial (comme dans le test isolé)
@@ -299,7 +303,10 @@ class Visage:
                 if self.sortie:
                     self.sortie.fin(rid)
             return
-        self.t_premiere.setdefault(rid, time.perf_counter())
+        maintenant = time.perf_counter()
+        self.t_premiere.setdefault(rid, maintenant)
+        self.t_derniere[rid] = maintenant
+        self.n_images[rid] = self.n_images.get(rid, 0) + 1
         h, w = img.shape[:2]
         petite = cv2.resize(img, (LARGEUR_VIDEO, round(h * LARGEUR_VIDEO / w)), interpolation=cv2.INTER_AREA)
         _, jpeg = cv2.imencode(".jpg", cv2.cvtColor(petite, cv2.COLOR_RGB2BGR),
@@ -314,7 +321,8 @@ class Visage:
 
 # ─── Session : une connexion WebSocket ───────────────────────────────────────
 COMPTEUR = itertools.count(1)
-EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")  # STT + voix : un seul fil
+EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu",  # STT + voix : un seul fil
+                          initializer=lambda: torch.cuda.set_device(GPU_VOIX))
 WHISPER = TTS = VISAGE = CLIENT = None
 SESSIONS = set()
 NOTES = collections.deque(maxlen=30)  # réponses écrites de Claude Code (mode labo), rejouées à la connexion
@@ -467,13 +475,16 @@ class Session:
                 reponse.append(p)
                 self.dit_recemment.append(p)
                 self.envoyer({"type": "phrase", "texte": p})
+                t_voix = time.perf_counter()
                 for morceau, sr, _ in TTS.generate_voice_clone_streaming(
                         text=p, language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE, chunk_size=TTS_CHUNK):
                     m.setdefault("t_son1", time.perf_counter())
+                    m["audio_s"] = m.get("audio_s", 0) + len(np.asarray(morceau).reshape(-1)) / sr
                     morceau = np.asarray(morceau, np.float32).reshape(-1)
                     if sr != 24000:
                         morceau = resample_poly(morceau, 24000, sr).astype(np.float32)
                     VISAGE.pousser(morceau)
+                m["calcul_voix_s"] = m.get("calcul_voix_s", 0) + time.perf_counter() - t_voix
             m["t_voix_finie"] = time.perf_counter()
             if "usage" in mc:
                 u = mc["usage"]
@@ -498,10 +509,23 @@ class Session:
         self.retenu = None
         self.occupe = False
 
-    def cloturer(self, rid):
+    def cloturer(self, rid, trous=None):
         m = self.mesures.pop(rid, None)
         if not m or "t_stt" not in m:
             return
+        # Diagnostic des coupures : la voix et le visage tiennent-ils le temps réel ?
+        n_img = VISAGE.n_images.pop(rid, 0)
+        t1, t2 = VISAGE.t_premiere.get(rid), VISAGE.t_derniere.pop(rid, None)
+        ips = n_img / (t2 - t1) if t1 and t2 and t2 > t1 else 0
+        audio_s = m.get("audio_s", 0)
+        vitesse_voix = audio_s / m["calcul_voix_s"] if m.get("calcul_voix_s") else 0
+        trous = trous or []
+        log(f"Diagnostic {rid} : réponse {audio_s:.1f} s | voix x{vitesse_voix:.1f} temps réel | "
+            f"visage {ips:.1f} images/s (25 nécessaires) | coupures chez le client : {len(trous)} "
+            f"{trous if trous else ''}")
+        m["diag"] = {"audio_s": round(audio_s, 1), "voix_x_temps_reel": round(vitesse_voix, 2),
+                     "visage_ips": round(ips, 1), "coupures": len(trous),
+                     "coupures_ms": sum(t[1] for t in trous), "trous": trous}
         t_image = VISAGE.t_premiere.pop(rid, None)
 
         def ms(a, b):
@@ -524,6 +548,7 @@ class Session:
             "total_percu": ms("t_fin", "t_lecture"),
             "silences_inseres": VISAGE.silences,
             "mode": m.get("mode", "client"),
+            **m.get("diag", {}),
         }
         log(f"Images données à Ditto {VISAGE.n_nourries}, produites {VISAGE.n_emises}")
         log("Délais (ms) :", {k: v for k, v in res.items() if k not in ("question", "reponse", "date")})
@@ -585,7 +610,7 @@ async def websocket(request):
                     m.setdefault("t_lecture", time.perf_counter())
                 s.envoyer({"type": "etat", "etat": "parle"})
             elif d["type"] == "pret":
-                s.cloturer(d.get("rid"))
+                s.cloturer(d.get("rid"), d.get("trous"))
                 s.reprendre()
                 s.t_pret = time.perf_counter()
                 s.sourd_jusqua = s.t_pret + GARDE_ECHO
@@ -607,13 +632,14 @@ async def websocket(request):
 def charger():
     global WHISPER, TTS, VISAGE, CLIENT, DOCUMENTS
     t = time.perf_counter()
-    WHISPER = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16",
+    WHISPER = WhisperModel("large-v3-turbo", device="cuda", device_index=GPU_VOIX, compute_type="float16",
                            download_root=str(RACINE / "models" / "whisper"))
     list(WHISPER.transcribe(np.zeros(16000, np.float32), language="fr")[0])
     log(f"Reconnaissance vocale prête ({time.perf_counter() - t:.0f} s)")
 
     t = time.perf_counter()
-    TTS = FasterQwen3TTS.from_pretrained(str(RACINE / "models" / f"qwen3-tts-{TAILLE_VOIX}"))
+    TTS = FasterQwen3TTS.from_pretrained(str(RACINE / "models" / f"qwen3-tts-{TAILLE_VOIX}"),
+                                         device=f"cuda:{GPU_VOIX}")
     # graphes CUDA capturés dans le fil qui servira ensuite
     EXEC.submit(lambda: list(TTS.generate_voice_clone_streaming(
         text="Bonjour.", language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE,
@@ -674,7 +700,9 @@ def charger():
             f"lu {u.cache_read_input_tokens} tokens ({time.perf_counter() - t:.1f} s)")
     else:
         log("Contexte iopool absent (dossier connaissances/) : prompt de base seul")
-    log(f"VRAM utilisée : {torch.cuda.memory_allocated() / 1e9:.1f} Go (PyTorch)")
+    for i in range(torch.cuda.device_count()):
+        log(f"Carte {i} ({torch.cuda.get_device_name(i)}) : {torch.cuda.memory_allocated(i) / 1e9:.1f} Go utilisés"
+            f"{' — voix + transcription' if i == GPU_VOIX else ''}{' — visage' if i == 0 else ''}")
 
 
 def main():

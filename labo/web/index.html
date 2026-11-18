@@ -66,6 +66,7 @@ photo.src = 'photo.jpg';
 const TAMPON_DEBUT = 1.0;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
 const TAMPON_REPRISE = 0.5;
 const GARDE_ECHO = 0.6;        // s de micro coupé après la fin du son joué    // s de réserve après un trou
+let trous = [], debutReponse = 0;   // coupures du son de la réponse en cours : [instant (s), durée (ms)]
 let ctx = null, ws = null, lecture = 0, images = [], ridCourant = -1, ligneIA = null;
 
 const ETATS = { ecoute: 'Je vous écoute…', entendu: 'Je vous entends…', reflexion: 'Je réfléchis…', parle: 'Je vous réponds…' };
@@ -147,8 +148,12 @@ function paquet(buf) {
   const pcm = new Int16Array(buf, 12, n);
   const ab = ctx.createBuffer(1, n, 24000), d = ab.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = pcm[i] / 32768;
-  if (rid !== ridCourant) lecture = Math.max(lecture, ctx.currentTime + TAMPON_DEBUT);          // nouvelle réponse
-  else if (lecture < ctx.currentTime + 0.02) lecture = ctx.currentTime + TAMPON_REPRISE;     // trou : on recale
+  if (rid !== ridCourant) { lecture = Math.max(lecture, ctx.currentTime + TAMPON_DEBUT); trous = []; }  // nouvelle réponse
+  else if (lecture < ctx.currentTime + 0.02) {                                                          // trou : on recale
+    trous.push([Math.round((lecture - debutReponse) * 10) / 10, Math.round((ctx.currentTime + TAMPON_REPRISE - lecture) * 1000)]);
+    lecture = ctx.currentTime + TAMPON_REPRISE;
+  }
+  if (rid !== ridCourant) debutReponse = lecture;
   const s = ctx.createBufferSource(); s.buffer = ab; s.connect(ctx.destination); s.start(lecture);
   const img = { t: lecture, bmp: null };
   images.push(img);
@@ -195,7 +200,7 @@ function message(m) {
       if (!ligneIA) ligneIA = ligne('ia', 'IA : ');
       ligneIA.textContent += m.texte + ' '; break;
     case 'fin':
-      setTimeout(() => envoyer({ type: 'pret', rid: m.rid }),
+      setTimeout(() => envoyer({ type: 'pret', rid: m.rid, trous }),
                  Math.max(0, (lecture - ctx.currentTime) * 1000) + 300);
       break;
     case 'mesures':
