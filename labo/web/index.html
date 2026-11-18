@@ -138,7 +138,11 @@ function connecter() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   ws.binaryType = 'arraybuffer';
   ws.onmessage = (e) => typeof e.data === 'string' ? message(JSON.parse(e.data)) : paquet(e.data);
-  ws.onclose = () => { etat('erreur', 'Connexion perdue — reconnexion…'); setTimeout(connecter, 1500); };
+  ws.onclose = () => {
+    etat('erreur', 'Connexion perdue — reconnexion…');
+    fetch('/photo.jpg', { method: 'HEAD' }).then(r => { if (r.status === 401) location.href = '/connexion'; }).catch(() => {});
+    setTimeout(connecter, 1500);
+  };
 }
 
 // Paquet binaire : [type u8][0][n u16][rid u32][réservé u32] + n échantillons 24 kHz int16 + image JPEG

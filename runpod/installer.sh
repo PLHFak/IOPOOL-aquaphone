@@ -31,18 +31,17 @@ echo "== Modèles (≈ 8 Go au 1er lancement : Ditto 2,2 Go, voix 1.7B 4,3 Go, W
   --local-dir models/ditto >/dev/null
 .venv/bin/hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/qwen3-tts-1.7B >/dev/null
 
-echo "== Tailscale (accès privé, comme sur le PC)"
-command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
-if ! pgrep -x tailscaled >/dev/null; then
-  # Pas de périphérique TUN dans un conteneur RunPod : mode « userspace »
-  nohup tailscaled --tun=userspace-networking --state="$W/tailscale.state" >"$W/tailscaled.log" 2>&1 &
-  sleep 3
+if [ -n "${TS_AUTHKEY:-}" ]; then
+  echo "== Tailscale (facultatif : accès privé en plus du mot de passe)"
+  command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh
+  if ! pgrep -x tailscaled >/dev/null; then
+    # Pas de périphérique TUN dans un conteneur RunPod : mode « userspace »
+    nohup tailscaled --tun=userspace-networking --state="$W/tailscale.state" >"$W/tailscaled.log" 2>&1 &
+    sleep 3
+  fi
+  tailscale status >/dev/null 2>&1 || tailscale up --authkey="$TS_AUTHKEY" --hostname=aquaphone-runpod
+  tailscale serve --bg 8765
 fi
-if ! tailscale status >/dev/null 2>&1; then
-  : "${TS_AUTHKEY:?Mettre une clé Tailscale dans TS_AUTHKEY (console Tailscale → Settings → Keys)}"
-  tailscale up --authkey="$TS_AUTHKEY" --hostname=aquaphone-runpod
-fi
-tailscale serve --bg 8765
 
 echo "== Fichiers privés à copier depuis le PC (jamais dans Git) :"
 for f in .env assets/visage_pierre.jpg models/ref_pierre.wav models/question_test_16k.wav \

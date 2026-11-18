@@ -4,8 +4,9 @@ Navigateur ──(micro, PCM 16 kHz, WebSocket)──▶ VAD Silero ▶ faster-w
 ▶ Qwen3-TTS voix clonée (flux, 24 kHz) ▶ Ditto (flux, 25 images/s)
 ──(paquets « 1 image JPEG + ses 40 ms d'audio »)──▶ navigateur (son et image synchronisés)
 
-Le serveur n'écoute que sur 127.0.0.1 ; l'accès depuis le Mac/iPhone passe par `tailscale serve`
-(HTTPS, obligatoire pour le micro dans Safari), sans rien ouvrir dans le pare-feu.
+Sur le PC, le serveur n'écoute que sur 127.0.0.1 ; l'accès depuis le Mac/iPhone passe par `tailscale serve`
+(HTTPS, obligatoire pour le micro dans Safari), sans rien ouvrir dans le pare-feu. Sur RunPod
+(AQUAPHONE_HOTE=0.0.0.0, proxy HTTPS public), la page est protégée par mot de passe (labo/acces.py).
 
 Usage : python labo/serveur.py      puis ouvrir https://<nom-du-pc>.<tailnet>.ts.net/
 Journal des délais : labo/journaux/pipeline.jsonl
@@ -42,7 +43,8 @@ from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.vad import get_assets_path  # noqa: E402
 from scipy.signal import resample_poly  # noqa: E402
 
-import cerveau  # noqa: E402
+import cerveau  # noqa: E402  (charge aussi .env)
+import acces  # noqa: E402
 import attente  # noqa: E402
 import contexte  # noqa: E402
 import mode_labo  # noqa: E402
@@ -56,6 +58,7 @@ from stream_pipeline_online import StreamSDK  # noqa: E402
 
 # ─── Réglages ────────────────────────────────────────────────────────────────
 PORT = int(os.environ.get("AQUAPHONE_PORT", "8765"))
+HOTE = os.environ.get("AQUAPHONE_HOTE", "127.0.0.1")  # 0.0.0.0 sur RunPod (adresse publique du proxy)
 WEB = Path(__file__).resolve().parent / "web"
 JOURNAL = Path(__file__).resolve().parent / "journaux" / "pipeline.jsonl"
 
@@ -762,13 +765,20 @@ def charger():
 
 def main():
     charger()
-    app = web.Application()
+    if HOTE != "127.0.0.1" and not acces.actif():
+        sys.exit("Refus : AQUAPHONE_HOTE public sans AQUAPHONE_MOT_DE_PASSE dans .env")
+
+    async def connexion(request):
+        return await acces.connexion(request, log)
+
+    app = web.Application(middlewares=[acces.garde])
     app.add_routes([web.get("/", page), web.get("/photo.jpg", photo), web.get("/ws", websocket),
-                    web.post("/note", note)])
+                    web.post("/note", note), web.get("/connexion", connexion), web.post("/connexion", connexion)])
     FICHIER_JETON.parent.mkdir(exist_ok=True)
     FICHIER_JETON.write_text(JETON, encoding="utf-8")
-    log(f"Serveur prêt : http://127.0.0.1:{PORT}/  (via Tailscale : tailscale serve --bg {PORT})")
-    web.run_app(app, host="127.0.0.1", port=PORT, print=None)
+    log(f"Serveur prêt : http://{HOTE}:{PORT}/  (via Tailscale : tailscale serve --bg {PORT}) — "
+        f"mot de passe {'actif' if acces.actif() else 'inactif'}")
+    web.run_app(app, host=HOTE, port=PORT, print=None)
 
 
 if __name__ == "__main__":

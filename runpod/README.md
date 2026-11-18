@@ -15,6 +15,7 @@ Claude (le cerveau, avec la documentation iopool en cache) ne change pas : il to
 | Version CUDA du pilote | **12.8 ou plus** (filtre « CUDA Version » de RunPod ; torch 2.11 cu128) |
 | Image | `runpod/pytorch` (Ubuntu, Python 3.11) |
 | Disque | **Network Volume ≈ 30 Go** monté sur `/workspace` (modèles + code, conservé quand le pod est arrêté) |
+| Ports | **HTTP port 8765** (proxy HTTPS public de RunPod) |
 
 Prix indicatifs (à vérifier sur runpod.io au moment de louer) : RTX 4090 ≈ 0,69 à 0,89 $/h en Secure Cloud,
 0,34 $/h en Community Cloud → **≈ 1,4 à 1,8 $/h pour 2 cartes** en Secure Cloud, plus le volume (quelques $/mois).
@@ -22,18 +23,19 @@ Prix indicatifs (à vérifier sur runpod.io au moment de louer) : RTX 4090 ≈ 0
 
 ## Mise en route (≈ 30 min la 1re fois)
 
-1. Console Tailscale → Settings → Keys : créer une clé d'authentification (usage unique, 1 jour).
-2. RunPod : créer le volume puis le pod (tableau ci-dessus), ouvrir un terminal sur le pod.
-3. Sur le pod :
+1. RunPod : créer le volume puis le pod (tableau ci-dessus), ouvrir un terminal sur le pod.
+2. Sur le pod :
    ```bash
    git clone https://github.com/PLHFak/IOPOOL-aquaphone.git /workspace/iopool-aquaphone
-   TS_AUTHKEY=tskey-auth-… bash /workspace/iopool-aquaphone/runpod/installer.sh
+   bash /workspace/iopool-aquaphone/runpod/installer.sh
    ```
-4. Copier les fichiers privés du PC vers le pod (via Tailscale, jamais via Git) :
-   `.env`, `assets/visage_pierre.jpg`, `models/ref_pierre.wav`, `models/question_test_16k.wav`, `connaissances/`.
-5. `bash /workspace/iopool-aquaphone/runpod/lancer.sh` → ouvrir `https://aquaphone-runpod.<tailnet>.ts.net/`.
+3. Copier les fichiers privés du PC vers le pod (jamais via Git) :
+   `.env` (avec `AQUAPHONE_MOT_DE_PASSE`), `assets/visage_pierre.jpg`, `models/ref_pierre.wav`,
+   `models/question_test_16k.wav`, `connaissances/`.
+4. `bash /workspace/iopool-aquaphone/runpod/lancer.sh` → ouvrir `https://<id-du-pod>-8765.proxy.runpod.net/`
+   et saisir le mot de passe (une fois par appareil, retenu 30 jours).
 
-Sessions suivantes : démarrer le pod, puis seulement l'étape 5.
+Sessions suivantes : démarrer le pod, puis seulement l'étape 4.
 
 ## Réglages
 
@@ -41,8 +43,11 @@ Sessions suivantes : démarrer le pod, puis seulement l'étape 5.
 - Avec deux cartes, on pourra revenir à la qualité maximale du visage (`AQUAPHONE_PAS=5`, `AQUAPHONE_HAUTEUR=960`,
   `AQUAPHONE_LARGEUR=540`) et réduire la réserve de lecture de la page.
 
-## Confidentialité
+## Confidentialité et accès
 
+- Adresse publique protégée par **mot de passe** (`labo/acces.py`) : page, photo et WebSocket. Majuscules
+  indifférentes ; 5 erreurs depuis une adresse → blocage 15 min ; 30 erreurs en 1 h → tout bloqué 1 h.
+  Le flux (voix, visage, texte) est chiffré en HTTPS. Changer le mot de passe après chaque série de tests.
+- Tailscale reste possible en plus (`TS_AUTHKEY=… bash installer.sh`), mais n'est plus nécessaire.
 - La photo et la voix de Pierre ne sont copiées que sur le volume du pod ; supprimer le volume en fin de labo.
-- `.env` (clé Anthropic) et `connaissances/` (documents internes iopool) : jamais dans Git, copiés à la main.
-- Le serveur n'écoute que sur 127.0.0.1 ; l'accès passe uniquement par Tailscale (pas de port public RunPod).
+- `.env` (clés, mot de passe) et `connaissances/` (documents internes iopool) : jamais dans Git, copiés à la main.
