@@ -37,6 +37,8 @@
   #mode { position:absolute; top:10px; left:10px; padding:4px 10px; border-radius:999px; font-size:13px;
           font-weight:700; background:#f2c14e; color:#2a1f00; display:none; }
   #journal p.labo { border-left:3px solid #f2c14e; }
+  #journal p.code { border-left:3px solid #f2c14e; background:#2a2410; white-space:pre-wrap; }
+  #journal p.code b { color:#f2c14e; }
 </style>
 </head>
 <body>
@@ -178,6 +180,10 @@ function message(m) {
     case 'transcription':
       if (m.mode === 'labo') ligne('labo', 'Vous → Claude Code : ' + m.texte); else ligne('vous', 'Vous : ' + m.texte);
       ligneIA = null; break;
+    case 'note': {
+      const p = ligne('code', ''); const b = document.createElement('b');
+      b.textContent = 'Claude Code (' + m.heure + ') : '; p.append(b, m.texte); break;
+    }
     case 'mode': document.getElementById('mode').style.display = m.mode === 'labo' ? 'block' : 'none'; break;
     case 'phrase':
       if (!ligneIA) ligneIA = ligne('ia', 'IA : ');

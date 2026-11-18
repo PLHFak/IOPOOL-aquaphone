@@ -1,8 +1,8 @@
 """Mode « labo » de la conversation vocale : Pierre parle au labo (Claude Code) au lieu de jouer le client.
 
 - Phrase qui commence par « Aquaphone » → mode labo : la demande est notée dans
-  `labo/journaux/demandes_vocales.md` ; la voix confirme seulement, Claude Code (qui surveille ce fichier)
-  répond par écrit dans le terminal.
+  `labo/journaux/demandes_vocales.md` ; rien n'est dit ni animé, aucun appel à Claude ;
+  Claude Code (qui surveille ce fichier) répond par écrit dans le terminal et sur la page.
 - Phrase qui commence par « iopool » (en mode labo) → retour en mode client (assistant du pisciniste).
 """
 import re
@@ -40,14 +40,3 @@ def noter_demande(texte):
             f.write("# Demandes vocales de Pierre (mode labo)\n\n")
         f.write(f"- [{time.strftime('%Y-%m-%d %H:%M:%S')}] {texte}\n")
 
-
-def reponse_fixe(ancien, mode, texte):
-    """Phrases dites sans passer par Claude (changement de mode, accusé de réception) ; None sinon."""
-    if mode == "labo":
-        if texte:
-            noter_demande(texte)
-            return ["C'est noté.", "Claude Code te répond par écrit."]
-        return ["Mode labo, je t'écoute."]
-    if ancien == "labo" and not texte:
-        return ["D'accord, je redeviens l'assistant du pisciniste."]
-    return None

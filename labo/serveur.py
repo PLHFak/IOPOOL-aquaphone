@@ -16,6 +16,7 @@ import itertools
 import json
 import os
 import queue
+import secrets
 import struct
 import sys
 import threading
@@ -298,6 +299,10 @@ class Visage:
 COMPTEUR = itertools.count(1)
 EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")  # STT + voix : un seul fil
 WHISPER = TTS = VISAGE = CLIENT = None
+SESSIONS = set()
+NOTES = collections.deque(maxlen=30)  # réponses écrites de Claude Code (mode labo), rejouées à la connexion
+JETON = secrets.token_urlsafe(24)  # protège /note (la page est servie sur tout le tailnet)
+FICHIER_JETON = JOURNAL.parent / "jeton_note.txt"
 DOCUMENTS = ""
 
 
@@ -394,13 +399,20 @@ class Session:
             if self.mode != ancien:
                 log(f"Passage en mode {self.mode}")
                 self.envoyer({"type": "mode", "mode": self.mode})
-            fixes = mode_labo.reponse_fixe(ancien, self.mode, texte)
+            if self.mode == "labo" or not texte:
+                # Mode labo : ni voix, ni visage, ni Claude — on note pour Claude Code et on réécoute.
+                if self.mode == "labo" and texte:
+                    mode_labo.noter_demande(texte)
+                    log(f"Demande pour Claude Code : « {texte} »")
+                if texte:
+                    self.envoyer({"type": "transcription", "texte": texte, "mode": self.mode})
+                self.mesures.pop(rid, None)
+                self.reprendre()
+                self.envoyer({"type": "etat", "etat": "ecoute"})
+                return
             m["mode"] = self.mode
-            if self.mode == "labo" and texte:
-                log(f"Demande pour Claude Code : « {texte} »")
-            self.envoyer({"type": "transcription", "texte": texte or m["question"], "mode": self.mode})
-            if not fixes:
-                self.historique.append({"role": "user", "content": texte})
+            self.envoyer({"type": "transcription", "texte": texte, "mode": self.mode})
+            self.historique.append({"role": "user", "content": texte})
             VISAGE.sortie = self
             VISAGE.commencer(rid)
             demarre = True
@@ -409,11 +421,6 @@ class Session:
 
             def penser():
                 try:
-                    if fixes:
-                        m.setdefault("t_phrase1", time.perf_counter())
-                        for p in fixes:
-                            phrases.put(p)
-                        return
                     for p in cerveau.phrases_en_flux(CLIENT, list(self.historique), mesures=mc,
                                                      documents=DOCUMENTS):
                         m.setdefault("t_phrase1", time.perf_counter())
@@ -443,8 +450,7 @@ class Session:
                 log(f"Claude : {u.input_tokens} tokens hors cache, {u.cache_read_input_tokens} lus en cache, "
                     f"{u.cache_creation_input_tokens} écrits en cache")
             m["reponse"] = " ".join(reponse)
-            if not fixes:
-                self.historique.append({"role": "assistant", "content": m["reponse"]})
+            self.historique.append({"role": "assistant", "content": m["reponse"]})
         except Exception as e:
             traceback.print_exc()
             if self.historique and self.historique[-1]["role"] == "user" and self.mode == "client":
@@ -504,6 +510,20 @@ def rechauffer_claude():
         pass
 
 
+async def note(request):
+    """Claude Code publie une réponse écrite : POST /note avec l'en-tête X-Jeton (voir labo/note.py)."""
+    if request.headers.get("X-Jeton") != JETON:
+        raise web.HTTPForbidden()
+    texte = (await request.text()).strip()
+    if texte:
+        n = {"type": "note", "heure": time.strftime("%H:%M"), "texte": texte}
+        NOTES.append(n)
+        for s in list(SESSIONS):
+            s.envoyer(n)
+        log(f"Note de Claude Code affichée sur {len(SESSIONS)} page(s)")
+    return web.Response(text="ok")
+
+
 async def page(request):
     return web.FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})
 
@@ -520,6 +540,9 @@ async def websocket(request):
     VISAGE.sortie = s  # la dernière page connectée reçoit le visage
     tache = asyncio.create_task(s.expediteur())
     log("Navigateur connecté :", request.headers.get("Tailscale-User-Login") or request.remote)
+    SESSIONS.add(s)
+    for n in NOTES:
+        s.envoyer(n)
     s.envoyer({"type": "etat", "etat": "ecoute"})
     async for msg in ws:
         if msg.type == WSMsgType.BINARY:
@@ -539,6 +562,7 @@ async def websocket(request):
                 s.occupe = True
                 s.envoyer({"type": "etat", "etat": "reflexion"})
                 loop.run_in_executor(EXEC, s.traiter, None, time.perf_counter(), d["texte"].strip())
+    SESSIONS.discard(s)
     s.file.put_nowait(None)
     await tache
     if VISAGE.sortie is s:
@@ -623,7 +647,10 @@ def charger():
 def main():
     charger()
     app = web.Application()
-    app.add_routes([web.get("/", page), web.get("/photo.jpg", photo), web.get("/ws", websocket)])
+    app.add_routes([web.get("/", page), web.get("/photo.jpg", photo), web.get("/ws", websocket),
+                    web.post("/note", note)])
+    FICHIER_JETON.parent.mkdir(exist_ok=True)
+    FICHIER_JETON.write_text(JETON, encoding="utf-8")
     log(f"Serveur prêt : http://127.0.0.1:{PORT}/  (via Tailscale : tailscale serve --bg {PORT})")
     web.run_app(app, host="127.0.0.1", port=PORT, print=None)
 
