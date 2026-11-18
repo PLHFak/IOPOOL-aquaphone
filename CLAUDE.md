@@ -35,3 +35,38 @@ Cas de test : « Mon eau est verte depuis deux jours, j'ai mis du chlore choc et
 
 - `assets/visage_pierre.jpg` — selfie de face, bouche fermée
 - `assets/voix_pierre.mp4` (ou .wav) — vidéo/enregistrement de sa voix
+
+## État du labo n°1 — passation (18/11/2026)
+
+Le pipeline de bout en bout fonctionne (détails et mesures : `labo/resultats.md`).
+
+**Où ça tourne** : service sur le PC labo (`python labo/serveur.py`, page privée
+`https://duplex-pc.taila4e728.ts.net/` via `tailscale serve --bg 8765`). Cible : **RunPod** (pod 2 × RTX 4090,
+Europe, Secure Cloud), le PC devient serveur de secours. Développement repris depuis le Mac de Pierre.
+Préparation RunPod prête mais **jamais testée sous Linux** : `runpod/README.md`, `installer.sh`, `lancer.sh`.
+
+**Décisions de Pierre (à respecter)**
+- **Voix : jamais dégradée** (Qwen3-TTS 1.7B). En cas de manque de puissance, on dégrade le visage
+  (`AQUAPHONE_PAS`, `AQUAPHONE_HAUTEUR`, `AQUAPHONE_LARGEUR`), pas la voix.
+- Délai : accepter quelques dixièmes de seconde de plus pour une réponse mieux informée.
+- **Documentation iopool** : zip interne du support, extrait dans `connaissances/` (gitignoré, jamais commité,
+  dépôt public). `labo/contexte.py` n'en garde que la partie autorisée pour un client (voir son README) et
+  la met en cache côté API (1 h). Jamais de dose chiffrée : l'application iopool la calcule.
+- **Mode labo** : phrase commençant par « Aquaphone » → ni voix, ni visage, ni Claude ; la demande est écrite
+  dans `labo/journaux/demandes_vocales.md`. Claude Code surveille ce fichier (Monitor, `tail -F`) et répond
+  **par écrit** dans le terminal et sur la page (`python labo/note.py "texte"`). « iopool » → retour client.
+- **Anti-écho** (haut-parleur → micro) : la page coupe le micro pendant la lecture + 0,6 s, le serveur aussi,
+  et jette une phrase qui répète ce que l'assistant vient de dire. Pas encore de coupure de parole (barge-in).
+- Ne pas lancer de test automatique (`labo/test_pipeline.py`) pendant que Pierre utilise la page :
+  le serveur ne gère qu'une conversation à la fois.
+
+**Problèmes ouverts**
+1. Coupures du son : la voix et le visage se partagent la carte graphique. Le serveur journalise par réponse
+   (« Diagnostic … ») les trous vus par la page, la vitesse de la voix et les images/s du visage → RunPod.
+2. Délai fin de phrase → réponse ≈ 3 à 5 s (objectif < 2 s) : 1re image du visage ≈ 1 s, Claude 0,7 à 2 s,
+   réserve de lecture 1 s.
+3. Timbre de la voix qui varie un peu d'une phrase à l'autre (voix générée phrase par phrase).
+
+**Fichiers privés à copier à la main** (Mac ou RunPod, jamais dans Git) : `.env`, `assets/`,
+`models/ref_pierre.wav`, `models/question_test_16k.wav`, `connaissances/`.
+Après le labo : faire tourner la clé API Anthropic.
