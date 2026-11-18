@@ -12,7 +12,7 @@ Construire un pipeline de bout en bout, en local, et mesurer les délais :
 4. **Visage** — animation de `assets/visage_pierre.jpg` synchronisée sur l'audio (type LivePortrait / MuseTalk ; choisir ce qui tient le temps réel sur 4090).
 5. **Mesures** — journaliser le délai de chaque étape et le délai total « fin de phrase → début de réponse ». Objectif < 1,5 s, acceptable < 2 s.
 
-6. **Interface de test** — Pierre pilote le PC à distance (SSH via Tailscale) : il n'est pas devant le PC. Sers une petite page web sur le PC, accessible depuis son Mac ou son iPhone via Tailscale, qui capte le micro du navigateur et affiche le visage animé avec le son. C'est aussi la préfiguration de l'application iPhone.
+6. **Interface de test** — Pierre pilote le PC à distance (Bureau à distance Chrome) : il n'est pas devant le PC, et son micro n'est pas transmis au PC. Sers une petite page web sur le PC, accessible depuis son Mac ou son iPhone via Tailscale, qui capte le micro du navigateur et affiche le visage animé avec le son. C'est aussi la préfiguration de l'application iPhone.
 
 Cas de test : « Mon eau est verte depuis deux jours, j'ai mis du chlore choc et ça ne change rien. »
 
