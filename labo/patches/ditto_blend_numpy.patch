@@ -1,0 +1,19 @@
+diff --git a/core/utils/blend/__init__.py b/core/utils/blend/__init__.py
+index f9e91b0..4aeb77c 100644
+--- a/core/utils/blend/__init__.py
++++ b/core/utils/blend/__init__.py
+@@ -1,4 +1,10 @@
+-import pyximport
+-pyximport.install()
++# Aquaphone (Windows, sans compilateur C) : remplacement numpy du module Cython `blend`.
++# Calcul identique à blend_impl.c : result = clip(mask * warped + (1 - mask) * rgb).
++import numpy as np
+ 
+-from .blend import blend_images_cy
+\ No newline at end of file
++
++def blend_images_cy(mask_warped, frame_warped, frame_rgb, result):
++    m = mask_warped[..., None]
++    tmp = m * frame_warped + (1.0 - m) * frame_rgb
++    np.clip(tmp, 0, 255, out=tmp)
++    result[...] = tmp.astype(np.uint8)

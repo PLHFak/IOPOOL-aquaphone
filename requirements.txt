@@ -1,13 +1,22 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
+ImageIO==2.38.2
+anthropic==2.10.0
 ctranslate2==4.9.0
 faster-qwen3-tts==0.5.4
 faster-whisper==1.2.1
+filetype==1.2.0
 huggingface_hub==1.33.0
+imageio-ffmpeg==0.8.1
+librosa==0.11.0
+mediapipe==1.2.3
 numpy==2.4.6
+onnxruntime-gpu==1.23.2
+opencv-python-headless==5.1.0.95
 python-dotenv==1.2.4
 qwen-tts-hf==0.1.1.post1
+scikit-image==0.26.0
 soundfile==0.14.0
 torch==2.11.0+cu128
 torchaudio==2.11.0+cu128
 transformers==5.15.1
-anthropic==2.10.0
+triton-windows==3.6.0.post26

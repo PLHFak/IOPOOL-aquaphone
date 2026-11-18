@@ -73,3 +73,50 @@ Qualité (1er essai) :
 - Haiku : reste vague (« équilibre ou filtration »), pose deux questions à la fois. Correct mais moins utile.
 
 → Opus fait à lui seul exploser le budget (1,8 s avant la 1re phrase). **Sonnet 5.5 sans réflexion** : meilleur compromis qualité/délai.
+
+## Brique 4 — Visage (Ditto, PyTorch)
+
+Modèle retenu : **Ditto** (Ant Group, Apache 2.0, `antgroup/ditto-talkinghead`) — anime toute la tête (mouvements, clignements, lèvres) à partir d'**une seule photo**, en flux. MuseTalk écarté : synchronisation des lèvres seule (visage figé sur un selfie).
+
+- Code cloné dans `third_party/ditto` (ignoré par Git), poids PyTorch (2,2 Go) dans `models/ditto`.
+- Audit avant exécution : `.pkl` de config = tableaux numpy uniquement (vérifié par `pickletools`, sans exécution) ; `.pth` chargés par PyTorch 2.11 en `weights_only` ; pas d'accès réseau ni de commande système dans `core/`.
+- Photo source réduite à 720×960 (`models/visage_pierre_960.jpg`).
+- Script `labo/test_visage.py` : mode flux (audio par morceaux de 0,2 s), phrase de 3,6 s en voix clonée.
+
+### Adaptations Windows (sans rien installer hors du dépôt)
+
+| Problème | Correctif |
+|---|---|
+| Module Cython `blend` → exige un compilateur C | Remplacé par numpy, calcul identique (`labo/patches/ditto_blend_numpy.patch`) |
+| Mode flux : 35 images au lieu de 90 | `overlap_v2=70` (valeur de la config « online » officielle) |
+| onnxruntime-gpu 1.32 compilé pour CUDA 13 → HuBERT tournait **sur le processeur** (52 ms) | onnxruntime-gpu **1.23.2** (CUDA 12) + préchargement des DLL de PyTorch (`labo/cuda_win.py`) → 8,6 ms |
+| Déformation + décodage : 24,5 ms/image | `torch.compile` (triton-windows, dans le `.venv`) → 14 ms ; compilation dans le fil principal (dans les fils de Ditto elle se bloque) |
+| `cudnn.benchmark` | **À éviter** : tailles variables en flux → 11 s avant la 1re image |
+| TensorRT | Non retenu : plugin `grid_sample_3d` fourni pour Linux seulement |
+
+### Mesures (phrase de 3,6 s, 2e essai)
+
+| Réglage | 1re image | Images/s (25 requis) | VRAM |
+|---|---|---|---|
+| Départ (10 pas, HuBERT sur CPU) | 1 155 ms | 15,7 ❌ | 1,6 Go |
+| 5 pas | 764 ms | 20,1 ❌ | 1,6 Go |
+| 5 pas + HuBERT GPU | 570 ms | 20,3 ❌ | 1,6 Go |
+| 10 pas + HuBERT GPU + compile | 758 ms | 21,5 ❌ | 1,4 Go |
+| **5 pas + HuBERT GPU + compile** ✅ | **530 ms** | **29,0** | 1,4 Go |
+
+Préparation de la photo : 0,16 s (une fois par conversation). torch.compile au démarrage : ~50 s la 1re fois, puis ~5–12 s (cache).
+
+Qualité / ressemblance : **à regarder par Pierre** — `models/sorties_visage/DEMO_visage_voix_pierre.mp4`.
+
+## Bilan provisoire du délai (fin de phrase → début de réponse)
+
+| Étape | Délai |
+|---|---|
+| Détection fin de phrase (VAD) | à mesurer (brique 5) |
+| Reconnaissance vocale | ~0,1 s |
+| Claude Sonnet 5.5 → 1re phrase | ~0,8 s |
+| Voix → 1er son | ~0,2 s |
+| Visage → 1re image | ~0,5 s |
+| **Total estimé (hors VAD et réseau)** | **~1,6 s** |
+
+Pistes pour passer sous 1,5 s : lancer la voix sur le **début** de la 1re phrase (premiers mots), réduire le préchauffage de Ditto (`chunksize`), envoyer le son et l'image ensemble dès la 1re image.
