@@ -54,3 +54,22 @@ Pas de génération en flux ; boucle Python non optimisée → limitée par le p
 | VRAM max | 5,1 Go |
 
 Qualité / ressemblance : **à écouter par Pierre** — `models/sorties_tts/rapide_1.7B_phrase*.wav`.
+
+## Brique 2 — Cerveau (Claude, streaming)
+
+- SDK `anthropic` 2.10.0, `labo/cerveau.py` : streaming + découpage en phrases (chaque phrase complète part aussitôt vers la voix).
+- Prompt système : assistant IA de Marc, réponses parlées, 2–4 phrases, une question à la fois, reformulation seulement si ambigu, pas de dosage sans mesures, escalade vers Marc.
+- Cas de test : « Mon eau est verte depuis deux jours, j'ai mis du chlore choc et ça ne change rien. » — script `labo/test_cerveau.py`, médiane de 3 essais.
+
+| Réglage | 1er mot | **1re phrase complète** | Réponse totale |
+|---|---|---|---|
+| Opus 5.5, effort `low` (réflexion toujours active) | 1 454 ms | **1 827 ms** | 2 659 ms |
+| Sonnet 5.5, sans réflexion (`between_tools`), effort `low` | 517 ms | **781 ms** | 1 350 ms |
+| Haiku 5.5, sans réflexion, effort `low` | 453 ms | **699 ms** | 944 ms |
+
+Qualité (1er essai) :
+- Opus : pH trop haut (> 7,6), filtration en continu, demande le pH. Très bon, 4 phrases.
+- Sonnet : empathie + pH trop haut + demande la valeur du pH. Très bon, 3 phrases, le plus naturel à l'oral.
+- Haiku : reste vague (« équilibre ou filtration »), pose deux questions à la fois. Correct mais moins utile.
+
+→ Opus fait à lui seul exploser le budget (1,8 s avant la 1re phrase). **Sonnet 5.5 sans réflexion** : meilleur compromis qualité/délai.
