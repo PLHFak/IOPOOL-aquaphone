@@ -61,6 +61,8 @@ async def essai(i):
                 images.append(msg.data[12 + 2 * n:])
             else:
                 d = json.loads(msg.data)
+                if d["type"] == "etat":
+                    print(f"  [état] {d['etat']}")
                 if d["type"] in ("transcription", "phrase", "erreur"):
                     print(f"  [{d['type']}] {d.get('texte')}")
                 elif d["type"] == "fin":

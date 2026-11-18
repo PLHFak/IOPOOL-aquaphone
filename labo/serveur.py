@@ -70,6 +70,7 @@ REF_TEXTE = (
     "discussion et ce sera bien."
 )
 TTS_CHUNK = 4
+TAILLE_VOIX = os.environ.get("AQUAPHONE_VOIX", "1.7B")  # 1.7B ou 0.6B
 
 # Visage : 1 image = 40 ms = 960 échantillons à 24 kHz = 640 à 16 kHz
 IPS = 25
@@ -78,7 +79,7 @@ BLOC_IMAGES = 5
 BLOC_24 = BLOC_IMAGES * ECH_IMAGE
 FENETRE_16 = (3 + 5 + 2) * 640 + 80  # fenêtre HuBERT : 3 images passées, 5 courantes, 2 futures
 PAS_16 = BLOC_IMAGES * 640
-BLOCS_VIDANGE = 4  # silence ajouté en fin de réponse pour sortir les dernières images
+BLOCS_VIDANGE = 8  # silence ajouté en fin de réponse pour sortir les dernières images
 AVANCE_MIN = 0.8  # s d'audio d'avance sous laquelle on insère un silence (évite les coupures)
 LARGEUR_VIDEO = 540
 QUALITE_JPEG = 80
@@ -320,6 +321,7 @@ class Session:
                 m["duree_parole"] = len(audio) / 16000
             m["t_stt"] = time.perf_counter()
             m["question"] = texte
+            log(f"Réponse {rid} — question : « {texte} »")
             if not texte:
                 self.envoyer({"type": "etat", "etat": "ecoute"})
                 self.reprendre()
@@ -401,6 +403,7 @@ class Session:
             "total_percu": ms("t_fin", "t_lecture"),
             "silences_inseres": VISAGE.silences,
         }
+        log(f"Images données à Ditto {VISAGE.n_nourries}, produites {VISAGE.n_emises}")
         log("Délais (ms) :", {k: v for k, v in res.items() if k not in ("question", "reponse", "date")})
         JOURNAL.parent.mkdir(exist_ok=True)
         with open(JOURNAL, "a", encoding="utf-8") as f:
@@ -443,6 +446,7 @@ async def websocket(request):
                 # pendant que le client parle : ouvrir la connexion HTTPS vers l'API (−0,5 s au 1er appel)
                 loop.run_in_executor(None, rechauffer_claude)
             if res:
+                log(f"Fin de parole détectée ({len(res[0]) / 16000:.1f} s d'audio)")
                 s.occupe = True
                 s.envoyer({"type": "etat", "etat": "reflexion"})
                 loop.run_in_executor(EXEC, s.traiter, *res)
@@ -479,12 +483,12 @@ def charger():
     log(f"Reconnaissance vocale prête ({time.perf_counter() - t:.0f} s)")
 
     t = time.perf_counter()
-    TTS = FasterQwen3TTS.from_pretrained(str(RACINE / "models" / "qwen3-tts-1.7B"))
+    TTS = FasterQwen3TTS.from_pretrained(str(RACINE / "models" / f"qwen3-tts-{TAILLE_VOIX}"))
     # graphes CUDA capturés dans le fil qui servira ensuite
     EXEC.submit(lambda: list(TTS.generate_voice_clone_streaming(
         text="Bonjour.", language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE,
         chunk_size=TTS_CHUNK))).result()
-    log(f"Voix prête ({time.perf_counter() - t:.0f} s)")
+    log(f"Voix {TAILLE_VOIX} prête ({time.perf_counter() - t:.0f} s)")
 
     t = time.perf_counter()
     if not SOURCE.exists():
