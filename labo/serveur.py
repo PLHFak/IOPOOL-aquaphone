@@ -43,6 +43,7 @@ from faster_whisper.vad import get_assets_path  # noqa: E402
 from scipy.signal import resample_poly  # noqa: E402
 
 import cerveau  # noqa: E402
+import attente  # noqa: E402
 import contexte  # noqa: E402
 import mode_labo  # noqa: E402
 
@@ -329,6 +330,7 @@ NOTES = collections.deque(maxlen=30)  # réponses écrites de Claude Code (mode 
 JETON = secrets.token_urlsafe(24)  # protège /note (la page est servie sur tout le tailnet)
 FICHIER_JETON = JOURNAL.parent / "jeton_note.txt"
 DOCUMENTS = ""
+CLIPS = {}  # phrases d'attente pré-calculées : {phrase: [(pcm, jpeg), …]}
 
 
 class Session:
@@ -344,6 +346,7 @@ class Session:
         self.sourd_jusqua = 0.0  # anti-écho : micro ignoré jusqu'à cet instant
         self.t_pret = 0.0  # fin de la dernière lecture côté page
         self.dit_recemment = collections.deque(maxlen=12)  # dernières phrases prononcées (filtre d'écho)
+        self.attentes_recentes = attente.nouveaux_recents()  # pas de répétition sur les 3 derniers tours
         self.mesures = {}
 
     # ─ fil de la boucle asyncio ─
@@ -450,6 +453,14 @@ class Session:
             m["mode"] = self.mode
             self.envoyer({"type": "transcription", "texte": texte, "mode": self.mode})
             self.historique.append({"role": "user", "content": texte})
+            # Phrase d'attente : clip tout prêt (voix + visage), envoyé avant que Claude ait répondu.
+            phrase = attente.choisir(texte, self.attentes_recentes) if CLIPS else None
+            if phrase in CLIPS:
+                m["attente"] = phrase
+                self.dit_recemment.append(phrase)
+                for pcm, jpeg in CLIPS[phrase]:
+                    self.envoyer(struct.pack("<BBHII", 1, 1, len(pcm) // 2, rid, 0) + pcm + jpeg)
+                log(f"Phrase d'attente : « {phrase} »")
             VISAGE.sortie = self
             VISAGE.commencer(rid)
             demarre = True
@@ -546,6 +557,8 @@ class Session:
             "reseau_et_tampon": ms("t_image1", "t_lecture"),
             "total_serveur": ms("t_fin", "t_image1"),
             "total_percu": ms("t_fin", "t_lecture"),
+            "attente": m.get("attente"),
+            "premier_son_percu": ms("t_fin", "t_lecture_attente") or ms("t_fin", "t_lecture"),
             "silences_inseres": VISAGE.silences,
             "mode": m.get("mode", "client"),
             **m.get("diag", {}),
@@ -607,7 +620,7 @@ async def websocket(request):
             if d["type"] == "lecture":
                 m = s.mesures.get(d.get("rid"))
                 if m is not None:
-                    m.setdefault("t_lecture", time.perf_counter())
+                    m.setdefault("t_lecture_attente" if d.get("attente") else "t_lecture", time.perf_counter())
                 s.envoyer({"type": "etat", "etat": "parle"})
             elif d["type"] == "pret":
                 s.cloturer(d.get("rid"), d.get("trous"))
@@ -626,6 +639,41 @@ async def websocket(request):
         VISAGE.sortie = None
     log("Navigateur déconnecté")
     return ws
+
+
+def rendre_clip(phrase):
+    """Voix clonée + visage pour une phrase d'attente → liste de paquets (pcm 40 ms, jpeg)."""
+    morceaux = EXEC.submit(lambda: [
+        (np.asarray(a, np.float32).reshape(-1), sr) for a, sr, _ in TTS.generate_voice_clone_streaming(
+            text=phrase, language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE, chunk_size=TTS_CHUNK)]).result()
+    audio = np.concatenate([a if sr == 24000 else resample_poly(a, 24000, sr).astype(np.float32)
+                            for a, sr in morceaux])
+    # silences de début et de fin coupés (phrase d'attente : 1 à 1,5 s, pas plus)
+    fort = np.flatnonzero(np.abs(audio) > 0.02 * np.abs(audio).max())
+    if len(fort):
+        audio = audio[max(0, fort[0] - 1200):fort[-1] + 3600]
+    class Capture:
+        def __init__(self):
+            self.paquets, self.fini = [], threading.Event()
+
+        def image(self, rid, pcm, jpeg):
+            self.paquets.append((pcm, jpeg))
+
+        def fin(self, rid):
+            self.fini.set()
+
+    cap, ancienne = Capture(), VISAGE.sortie
+    VISAGE.sortie = cap
+    rid = f"attente:{phrase}"
+    VISAGE.commencer(rid)
+    VISAGE.pousser(audio)
+    VISAGE.terminer()
+    cap.fini.wait(60)
+    VISAGE.sortie = ancienne
+    VISAGE.t_premiere.pop(rid, None)
+    VISAGE.t_derniere.pop(rid, None)
+    VISAGE.n_images.pop(rid, None)
+    return cap.paquets
 
 
 # ─── Démarrage ───────────────────────────────────────────────────────────────
@@ -686,6 +734,13 @@ def charger():
     time.sleep(0.5)
     log(f"Visage prêt ({time.perf_counter() - t:.0f} s) — images données {VISAGE.n_nourries}, "
         f"produites {VISAGE.n_emises}")
+
+    t = time.perf_counter()
+    global CLIPS
+    CLIPS = attente.charger(rendre_clip, ("silences coupés", TAILLE_VOIX, PAS_DIFFUSION, HAUTEUR_SOURCE, LARGEUR_VIDEO, QUALITE_JPEG,
+                                          os.path.getsize(REF_AUDIO), REF_TEXTE))
+    log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
+        f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
     CLIENT = anthropic.Anthropic()
     DOCUMENTS = contexte.documents()

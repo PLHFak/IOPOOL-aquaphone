@@ -43,16 +43,21 @@ async def essai(i):
                 await asyncio.sleep(max(0, t0 + k * 0.02 - time.perf_counter()))
 
         tache = asyncio.create_task(micro())
-        t_lecture = None
+        t_lecture = t_attente = None
         lecture, coupures, trou = 0.0, 0, 0.0  # même logique de lecture que la page web
         async for msg in ws:
             if msg.type == aiohttp.WSMsgType.BINARY:
                 n, rid = struct.unpack_from("<HI", msg.data, 2)
+                est_attente = msg.data[1] == 1  # phrase d'attente : jouée tout de suite (même logique que la page)
                 now = time.perf_counter()
-                if t_lecture is None:
-                    t_lecture = lecture = now + TAMPON_DEBUT
+                if est_attente and t_attente is None:
+                    t_attente = lecture = now + 0.15
+                    asyncio.get_running_loop().call_later(0.15, lambda r=rid: asyncio.ensure_future(
+                        ws.send_str(json.dumps({"type": "lecture", "rid": r, "attente": True}))))
+                elif not est_attente and t_lecture is None:
+                    t_lecture = lecture = max(lecture, now + TAMPON_DEBUT)
                     asyncio.get_running_loop().call_later(
-                        TAMPON_DEBUT, lambda r=rid: asyncio.ensure_future(ws.send_str(json.dumps({"type": "lecture", "rid": r}))))
+                        t_lecture - now, lambda r=rid: asyncio.ensure_future(ws.send_str(json.dumps({"type": "lecture", "rid": r}))))
                 elif lecture < now + 0.02:
                     coupures += 1
                     trou += now + TAMPON_REPRISE - lecture
@@ -68,7 +73,7 @@ async def essai(i):
                     print(f"  [{d['type']}] {d.get('texte')}")
                 elif d["type"] == "fin":
                     duree = sum(len(x) for x in sons) / 24000
-                    await asyncio.sleep(max(0, t_lecture + duree - time.perf_counter()) + 0.3)
+                    await asyncio.sleep(max(0, lecture - time.perf_counter()) + 0.3)
                     await ws.send_str(json.dumps({"type": "pret", "rid": d["rid"]}))
                 elif d["type"] == "mesures":
                     mesures = {**d, "coupures": coupures, "duree_coupures_ms": round(trou * 1000)}

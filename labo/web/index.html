@@ -65,9 +65,10 @@ photo.src = 'photo.jpg';
 
 const TAMPON_DEBUT = 1.0;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
 const TAMPON_REPRISE = 0.5;
+const TAMPON_ATTENTE = 0.15;   // le clip d'attente est déjà entièrement calculé : presque pas de réserve
 const GARDE_ECHO = 0.6;        // s de micro coupé après la fin du son joué    // s de réserve après un trou
 let trous = [], debutReponse = 0;   // coupures du son de la réponse en cours : [instant (s), durée (ms)]
-let ctx = null, ws = null, lecture = 0, images = [], ridCourant = -1, ligneIA = null;
+let ctx = null, ws = null, lecture = 0, images = [], cleCourante = '', ridAttente = -1, ligneIA = null;
 
 const ETATS = { ecoute: 'Je vous écoute…', entendu: 'Je vous entends…', reflexion: 'Je réfléchis…', parle: 'Je vous réponds…' };
 function etat(cle, texte) { etatEl.className = cle; etatTexte.textContent = texte || ETATS[cle] || cle; }
@@ -148,19 +149,23 @@ function paquet(buf) {
   const pcm = new Int16Array(buf, 12, n);
   const ab = ctx.createBuffer(1, n, 24000), d = ab.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = pcm[i] / 32768;
-  if (rid !== ridCourant) { lecture = Math.max(lecture, ctx.currentTime + TAMPON_DEBUT); trous = []; }  // nouvelle réponse
-  else if (lecture < ctx.currentTime + 0.02) {                                                          // trou : on recale
+  // octet 1 = 1 : phrase d'attente (clip tout prêt, joué tout de suite) ; 0 : la vraie réponse
+  const attente = v.getUint8(1) === 1, cle = (attente ? 'a' : 'r') + rid, nouveau = cle !== cleCourante;
+  if (nouveau) {
+    lecture = Math.max(lecture, ctx.currentTime + (attente ? TAMPON_ATTENTE : TAMPON_DEBUT));
+    if (attente || rid !== ridAttente) { trous = []; debutReponse = lecture; }
+    if (attente) ridAttente = rid;
+  } else if (lecture < ctx.currentTime + 0.02) {                                                        // trou : on recale
     trous.push([Math.round((lecture - debutReponse) * 10) / 10, Math.round((ctx.currentTime + TAMPON_REPRISE - lecture) * 1000)]);
     lecture = ctx.currentTime + TAMPON_REPRISE;
   }
-  if (rid !== ridCourant) debutReponse = lecture;
   const s = ctx.createBufferSource(); s.buffer = ab; s.connect(ctx.destination); s.start(lecture);
   const img = { t: lecture, bmp: null };
   images.push(img);
   createImageBitmap(new Blob([new Uint8Array(buf, 12 + 2 * n)], { type: 'image/jpeg' })).then((b) => { img.bmp = b; });
-  if (rid !== ridCourant) {
-    ridCourant = rid;
-    setTimeout(() => envoyer({ type: 'lecture', rid }), Math.max(0, (lecture - ctx.currentTime) * 1000));
+  if (nouveau) {
+    cleCourante = cle;
+    setTimeout(() => envoyer({ type: 'lecture', rid, attente }), Math.max(0, (lecture - ctx.currentTime) * 1000));
   }
   lecture += n / 24000;
 }
@@ -183,6 +188,7 @@ const LIBELLES = [
   ['voix_1er_son', 'Voix : 1er son'],
   ['visage_1re_image', 'Visage : 1re image'],
   ['reseau_et_tampon', 'Réseau + tampon'],
+  ['premier_son_percu', 'Premier son (phrase d’attente comprise)'],
   ['total_percu', 'Total fin de parole → réponse'],
 ];
 function message(m) {
