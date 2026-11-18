@@ -42,6 +42,7 @@ from scipy.signal import resample_poly  # noqa: E402
 
 import cerveau  # noqa: E402
 import contexte  # noqa: E402
+import mode_labo  # noqa: E402
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -61,7 +62,7 @@ SILENCE_FIN = float(os.environ.get("AQUAPHONE_SILENCE", "0.5"))  # silence qui c
 PAROLE_MIN = 0.3  # en dessous : bruit, ignoré (s)
 PRE_ROLL = 0.3  # audio gardé avant le début détecté (s)
 ATTENTE_SUITE = 1.2  # phrase transcrite inachevée (« je voudrais savoir... ») : délai pour la reprise (s)
-PROMPT_STT = "Un client parle à l'assistant de son pisciniste : piscine, chlore choc, pH, iopool."
+PROMPT_STT = "Aquaphone. Un client parle à l'assistant de son pisciniste : piscine, chlore choc, pH, iopool."
 
 # Voix
 REF_AUDIO = str(RACINE / "models" / "ref_pierre.wav")
@@ -305,6 +306,7 @@ class Session:
         self.ws, self.loop = ws, loop
         self.file = asyncio.Queue()
         self.historique = []
+        self.mode = "client"  # « labo » après « Aquaphone » (voir mode_labo.py)
         self.ecoute = Ecoute()
         self.occupe = False
         self.parole_signalee = False
@@ -387,8 +389,18 @@ class Session:
                 self.envoyer({"type": "etat", "etat": "ecoute"})
                 self.reprendre()
                 return
-            self.envoyer({"type": "transcription", "texte": texte})
-            self.historique.append({"role": "user", "content": texte})
+            ancien = self.mode
+            self.mode, texte = mode_labo.detecter(texte, self.mode)
+            if self.mode != ancien:
+                log(f"Passage en mode {self.mode}")
+                self.envoyer({"type": "mode", "mode": self.mode})
+            fixes = mode_labo.reponse_fixe(ancien, self.mode, texte)
+            m["mode"] = self.mode
+            if self.mode == "labo" and texte:
+                log(f"Demande pour Claude Code : « {texte} »")
+            self.envoyer({"type": "transcription", "texte": texte or m["question"], "mode": self.mode})
+            if not fixes:
+                self.historique.append({"role": "user", "content": texte})
             VISAGE.sortie = self
             VISAGE.commencer(rid)
             demarre = True
@@ -397,6 +409,11 @@ class Session:
 
             def penser():
                 try:
+                    if fixes:
+                        m.setdefault("t_phrase1", time.perf_counter())
+                        for p in fixes:
+                            phrases.put(p)
+                        return
                     for p in cerveau.phrases_en_flux(CLIENT, list(self.historique), mesures=mc,
                                                      documents=DOCUMENTS):
                         m.setdefault("t_phrase1", time.perf_counter())
@@ -426,10 +443,11 @@ class Session:
                 log(f"Claude : {u.input_tokens} tokens hors cache, {u.cache_read_input_tokens} lus en cache, "
                     f"{u.cache_creation_input_tokens} écrits en cache")
             m["reponse"] = " ".join(reponse)
-            self.historique.append({"role": "assistant", "content": m["reponse"]})
+            if not fixes:
+                self.historique.append({"role": "assistant", "content": m["reponse"]})
         except Exception as e:
             traceback.print_exc()
-            if self.historique and self.historique[-1]["role"] == "user":
+            if self.historique and self.historique[-1]["role"] == "user" and self.mode == "client":
                 self.historique.pop()
             self.envoyer({"type": "erreur", "texte": f"{type(e).__name__} : {e}"})
             if not demarre:
@@ -469,6 +487,7 @@ class Session:
             "total_serveur": ms("t_fin", "t_image1"),
             "total_percu": ms("t_fin", "t_lecture"),
             "silences_inseres": VISAGE.silences,
+            "mode": m.get("mode", "client"),
         }
         log(f"Images données à Ditto {VISAGE.n_nourries}, produites {VISAGE.n_emises}")
         log("Délais (ms) :", {k: v for k, v in res.items() if k not in ("question", "reponse", "date")})

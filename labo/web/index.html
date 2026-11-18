@@ -34,11 +34,15 @@
   td:last-child { text-align:right; }
   tr.total td { font-weight:700; color:var(--accent); }
   .note { color:var(--doux); font-size:13px; }
+  #mode { position:absolute; top:10px; left:10px; padding:4px 10px; border-radius:999px; font-size:13px;
+          font-weight:700; background:#f2c14e; color:#2a1f00; display:none; }
+  #journal p.labo { border-left:3px solid #f2c14e; }
 </style>
 </head>
 <body>
 <div id="scene">
   <canvas id="ecran" width="540" height="720"></canvas>
+  <div id="mode">Mode labo · Claude Code</div>
   <div id="etat"><span class="point"></span><span id="etat-texte">Appuyez sur « Démarrer »</span></div>
 </div>
 <div class="bloc">
@@ -46,7 +50,8 @@
   <form id="saisie"><input id="question" placeholder="…ou tapez une question" autocomplete="off"><button>Envoyer</button></form>
   <table id="mesures"></table>
   <div id="journal"></div>
-  <p class="note">Labo Aquaphone — vous parlez à une IA (assistant de Marc). Parlez, puis marquez une courte pause.</p>
+  <p class="note">Labo Aquaphone — vous parlez à une IA (assistant de Marc). Parlez, puis marquez une courte pause.
+    Commencez par « Aquaphone » pour parler au labo (Claude Code répond par écrit dans le terminal), par « iopool » pour revenir en client.</p>
 </div>
 <script>
 const ecran = document.getElementById('ecran'), g = ecran.getContext('2d');
@@ -170,7 +175,10 @@ const LIBELLES = [
 function message(m) {
   switch (m.type) {
     case 'etat': etat(m.etat); break;
-    case 'transcription': ligne('vous', 'Vous : ' + m.texte); ligneIA = null; break;
+    case 'transcription':
+      if (m.mode === 'labo') ligne('labo', 'Vous → Claude Code : ' + m.texte); else ligne('vous', 'Vous : ' + m.texte);
+      ligneIA = null; break;
+    case 'mode': document.getElementById('mode').style.display = m.mode === 'labo' ? 'block' : 'none'; break;
     case 'phrase':
       if (!ligneIA) ligneIA = ligne('ia', 'IA : ');
       ligneIA.textContent += m.texte + ' '; break;
