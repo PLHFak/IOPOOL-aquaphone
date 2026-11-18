@@ -167,3 +167,23 @@ donnée à une phrase coupée (« Bonjour, je voudrais savoir comment je peux...
   les deux morceaux avant de répondre ; le micro reçu pendant la transcription est rejoué.
 - À surveiller : naturel du visage à 3 étapes (avis de Pierre), légère variation du timbre d'une phrase
   à l'autre (voix générée phrase par phrase).
+
+### Contexte iopool (base documentaire du support, 18/11/2026)
+
+Zip de Pierre extrait dans `connaissances/` (**gitignoré** : documents internes iopool, dépôt public).
+`labo/contexte.py` assemble 42 fichiers sur 86 (≈ 448 000 caractères, 172 000 tokens) et applique le
+README de la base : exclus les procédures internes (`operations/`), les doses internes, la fiche capteur
+marquée INTERNE, les prix et contacts. Consignes ajoutées : jamais de dose chiffrée (l'application la
+calcule), rien de ce qui est marqué interne, aucun prénom ni e-mail, aucune promesse commerciale.
+
+Mise en cache côté API (1 h, écrite au démarrage du serveur) :
+
+| Claude, 1re phrase (cas de test) | Sans contexte | Avec contexte (cache) |
+|---|---|---|
+| Cas de test | 650 ms | 750 à 960 ms |
+| Sonde sans mesures (question complexe) | 1,6 s | 1,5 à 2,3 s |
+
+- Coût en délai ≈ +0,1 à 0,2 s ; les questions complexes font réfléchir Claude plus longtemps, avec ou sans contexte.
+- Réponses vérifiées : partage de piscine (étapes exactes de l'app), sonde sans mesures (question sur la
+  Gateway), dose de chlore choc → refus de chiffrer, renvoi vers l'application.
+- Bout en bout (visage 3 étapes) : total perçu 3,3 à 3,4 s, 0 à 1 coupure.

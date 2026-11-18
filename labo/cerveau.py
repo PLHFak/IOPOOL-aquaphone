@@ -23,7 +23,15 @@ PROMPT_SYSTEME = """Tu es l'assistant vocal de Marc, pisciniste. Tu parles à un
 FIN_DE_PHRASE = re.compile(r"(.+?[.!?…])(\s+|$)", re.S)
 
 
-def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, **options):
+def systeme(documents=""):
+    """Prompt système ; la documentation (longue, fixe) est mise en cache 1 h côté API."""
+    if not documents:
+        return PROMPT_SYSTEME
+    return [{"type": "text", "text": PROMPT_SYSTEME},
+            {"type": "text", "text": documents, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+
+
+def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, documents="", **options):
     """Génère la réponse phrase par phrase dès que chacune est complète.
 
     `mesures` (dict) reçoit : premier_mot, premiere_phrase, total (secondes depuis l'appel).
@@ -32,7 +40,7 @@ def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, 
     t0 = time.perf_counter()
     tampon = ""
     with client.messages.stream(
-        model=modele, max_tokens=1024, system=PROMPT_SYSTEME, messages=historique, **options
+        model=modele, max_tokens=1024, system=systeme(documents), messages=historique, **options
     ) as flux:
         for morceau in flux.text_stream:
             if mesures is not None and "premier_mot" not in mesures:
@@ -51,3 +59,4 @@ def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, 
     if mesures is not None:
         mesures["total"] = time.perf_counter() - t0
         mesures["stop_reason"] = reponse.stop_reason
+        mesures["usage"] = reponse.usage

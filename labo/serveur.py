@@ -41,6 +41,7 @@ from faster_whisper.vad import get_assets_path  # noqa: E402
 from scipy.signal import resample_poly  # noqa: E402
 
 import cerveau  # noqa: E402
+import contexte  # noqa: E402
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -296,6 +297,7 @@ class Visage:
 COMPTEUR = itertools.count(1)
 EXEC = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")  # STT + voix : un seul fil
 WHISPER = TTS = VISAGE = CLIENT = None
+DOCUMENTS = ""
 
 
 class Session:
@@ -395,7 +397,8 @@ class Session:
 
             def penser():
                 try:
-                    for p in cerveau.phrases_en_flux(CLIENT, list(self.historique), mesures=mc):
+                    for p in cerveau.phrases_en_flux(CLIENT, list(self.historique), mesures=mc,
+                                                     documents=DOCUMENTS):
                         m.setdefault("t_phrase1", time.perf_counter())
                         phrases.put(p)
                 except Exception as e:  # transmis au fil gpu
@@ -418,6 +421,10 @@ class Session:
                         morceau = resample_poly(morceau, 24000, sr).astype(np.float32)
                     VISAGE.pousser(morceau)
             m["t_voix_finie"] = time.perf_counter()
+            if "usage" in mc:
+                u = mc["usage"]
+                log(f"Claude : {u.input_tokens} tokens hors cache, {u.cache_read_input_tokens} lus en cache, "
+                    f"{u.cache_creation_input_tokens} écrits en cache")
             m["reponse"] = " ".join(reponse)
             self.historique.append({"role": "assistant", "content": m["reponse"]})
         except Exception as e:
@@ -523,7 +530,7 @@ async def websocket(request):
 
 # ─── Démarrage ───────────────────────────────────────────────────────────────
 def charger():
-    global WHISPER, TTS, VISAGE, CLIENT
+    global WHISPER, TTS, VISAGE, CLIENT, DOCUMENTS
     t = time.perf_counter()
     WHISPER = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16",
                            download_root=str(RACINE / "models" / "whisper"))
@@ -579,6 +586,18 @@ def charger():
         f"produites {VISAGE.n_emises}")
 
     CLIENT = anthropic.Anthropic()
+    DOCUMENTS = contexte.documents()
+    if DOCUMENTS:
+        # écrit la documentation dans le cache de l'API (sinon la 1re question paierait cette écriture)
+        t = time.perf_counter()
+        mc = {}
+        list(cerveau.phrases_en_flux(CLIENT, [{"role": "user", "content": "Bonjour."}], mesures=mc,
+                                     documents=DOCUMENTS))
+        u = mc.get("usage")
+        log(f"Contexte iopool : {len(DOCUMENTS)} caractères, cache écrit {u.cache_creation_input_tokens} / "
+            f"lu {u.cache_read_input_tokens} tokens ({time.perf_counter() - t:.1f} s)")
+    else:
+        log("Contexte iopool absent (dossier connaissances/) : prompt de base seul")
     log(f"VRAM utilisée : {torch.cuda.memory_allocated() / 1e9:.1f} Go (PyTorch)")
 
 

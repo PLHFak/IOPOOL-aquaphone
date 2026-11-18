@@ -8,3 +8,6 @@ assets/
 *.mp4
 third_party/
 labo/journaux/
+
+# Base documentaire iopool (interne, jamais commitée : dépôt public)
+connaissances/
