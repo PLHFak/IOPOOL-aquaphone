@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODELE_PAR_DEFAUT = "claude-opus-5-5"
+MODELE_PAR_DEFAUT = "claude-sonnet-5-5"
+# Sans réflexion + effort bas : 1re phrase en ~0,8 s (voir labo/resultats.md)
+OPTIONS_PAR_DEFAUT = {"thinking": {"type": "between_tools"}, "output_config": {"effort": "low"}}
 
 PROMPT_SYSTEME = """Tu es l'assistant vocal de Marc, pisciniste. Tu parles à un client de Marc, au téléphone.
 
@@ -26,6 +28,7 @@ def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, 
 
     `mesures` (dict) reçoit : premier_mot, premiere_phrase, total (secondes depuis l'appel).
     """
+    options = options or OPTIONS_PAR_DEFAUT
     t0 = time.perf_counter()
     tampon = ""
     with client.messages.stream(
