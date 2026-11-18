@@ -26,7 +26,7 @@ Prix indicatifs (à vérifier sur runpod.io au moment de louer) : RTX 4090 ≈ 0
 2. RunPod : créer le volume puis le pod (tableau ci-dessus), ouvrir un terminal sur le pod.
 3. Sur le pod :
    ```bash
-   git clone https://github.com/PLHFak/iopool-aquaphone.git /workspace/iopool-aquaphone
+   git clone https://github.com/PLHFak/IOPOOL-aquaphone.git /workspace/iopool-aquaphone
    TS_AUTHKEY=tskey-auth-… bash /workspace/iopool-aquaphone/runpod/installer.sh
    ```
 4. Copier les fichiers privés du PC vers le pod (via Tailscale, jamais via Git) :

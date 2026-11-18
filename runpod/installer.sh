@@ -11,7 +11,7 @@ echo "== Paquets système"
 apt-get update -qq && apt-get install -y -qq ffmpeg git curl python3-venv >/dev/null
 
 echo "== Code"
-[ -d "$D/.git" ] || git clone https://github.com/PLHFak/iopool-aquaphone.git "$D"
+[ -d "$D/.git" ] || git clone https://github.com/PLHFak/IOPOOL-aquaphone.git "$D"
 cd "$D" && git pull --ff-only || true
 
 echo "== Python (venv dans le dépôt)"
