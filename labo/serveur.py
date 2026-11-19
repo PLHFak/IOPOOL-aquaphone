@@ -44,6 +44,7 @@ from faster_qwen3_tts import FasterQwen3TTS  # noqa: E402
 from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.vad import get_assets_path  # noqa: E402
 from scipy.signal import resample_poly  # noqa: E402
+import soundfile as sf  # noqa: E402
 
 import cerveau  # noqa: E402  (charge aussi .env)
 import acces  # noqa: E402
@@ -86,18 +87,69 @@ REF_TEXTE = (
     "discussion et ce sera bien."
 )
 TTS_CHUNK = 4
-# Voix stable d'une phrase à l'autre : tirage moins « créatif » (défaut 0,9 → timbre, débit, voire genre
-# qui varient) et même graine à chaque phrase.
 VOIX_TEMPERATURE = float(os.environ.get("AQUAPHONE_VOIX_TEMPERATURE", "0.6"))
 VOIX_GRAINE = 1234
+# Contrôle de la voix (labo2/test_controle_voix.py) : chaque phrase est un tirage au hasard et ≈ 1 sur 8
+# part loin de la référence (timbre plus aigu, « voix de femme »). La 1re seconde suffit à le voir
+# (10 ratés sur 10 détectés, 3 fausses alertes sur 80) : on la garde en réserve, on mesure la hauteur, et
+# si elle sort de la plage de la référence on abandonne et on refait avec une autre graine.
+CONTROLE_S = 1.2           # audio mesuré avant de jouer la phrase
+CONTROLE_ESSAIS = 3        # essais au plus ; le dernier est joué quoi qu'il arrive
+CONTROLE_BORNES = (0.73, 1.34)  # plage acceptée, en multiples de la hauteur médiane de la référence
+REF_HAUTEUR = None         # mesurée au chargement
 
 
-def parler(texte):
-    """Synthèse clonée en flux, réglages identiques pour toutes les phrases (appelée dans le fil EXEC)."""
-    torch.manual_seed(VOIX_GRAINE)
+def hauteur_mediane(a, sr=24000):
+    """Hauteur médiane de la voix (Hz) par autocorrélation sur des fenêtres de 85 ms ; 0 si inaudible."""
+    v = []
+    for i in range(0, len(a) - 2048, sr // 10):
+        x = a[i:i + 2048] - a[i:i + 2048].mean()
+        if np.sqrt((x ** 2).mean()) < 0.01:
+            continue
+        c = np.correlate(x, x, "full")[len(x) - 1:]
+        lo, hi = sr // 400, sr // 60
+        k = lo + int(np.argmax(c[lo:hi]))
+        if c[k] > 0.3 * c[0]:
+            v.append(sr / k)
+    return float(np.median(v)) if v else 0.0
+
+
+def parler(texte, graine=VOIX_GRAINE):
+    """Synthèse clonée en flux (un seul tirage), appelée dans le fil EXEC."""
+    torch.manual_seed(graine)
     return TTS.generate_voice_clone_streaming(text=texte, language="French", ref_audio=REF_AUDIO,
                                               ref_text=REF_TEXTE, chunk_size=TTS_CHUNK,
                                               temperature=VOIX_TEMPERATURE, top_k=30)
+
+
+def parler_controle(texte):
+    """Comme parler(), en morceaux float32 à 24 kHz, mais la 1re seconde est vérifiée avant d'être rendue :
+    hauteur hors de la plage de la référence → tirage abandonné et refait (autre graine)."""
+    for essai in range(CONTROLE_ESSAIS):
+        flux = parler(texte, VOIX_GRAINE + essai)
+        tete, duree = [], 0.0
+        for morceau, sr, _ in flux:
+            morceau = np.asarray(morceau, np.float32).reshape(-1)
+            if sr != 24000:
+                morceau = resample_poly(morceau, 24000, sr).astype(np.float32)
+            tete.append(morceau)
+            duree += len(morceau) / 24000
+            if duree >= CONTROLE_S:
+                break
+        h = hauteur_mediane(np.concatenate(tete)) if tete else 0.0
+        bon = REF_HAUTEUR is None or h == 0.0 or (
+            CONTROLE_BORNES[0] * REF_HAUTEUR <= h <= CONTROLE_BORNES[1] * REF_HAUTEUR)
+        if bon or essai == CONTROLE_ESSAIS - 1:
+            if essai:
+                log(f"Voix : essai {essai + 1} retenu ({h:.0f} Hz, référence {REF_HAUTEUR:.0f} Hz) « {texte[:40]} »")
+            yield from tete
+            for morceau, sr, _ in flux:
+                morceau = np.asarray(morceau, np.float32).reshape(-1)
+                yield morceau if sr == 24000 else resample_poly(morceau, 24000, sr).astype(np.float32)
+            return
+        flux.close()
+        log(f"Voix : essai {essai + 1} écarté ({h:.0f} Hz, hors de {CONTROLE_BORNES[0] * REF_HAUTEUR:.0f}–"
+            f"{CONTROLE_BORNES[1] * REF_HAUTEUR:.0f} Hz) « {texte[:40]} »")
 TAILLE_VOIX = os.environ.get("AQUAPHONE_VOIX", "1.7B")  # 1.7B ou 0.6B
 # Carte graphique de la voix et de la transcription. Le visage (Ditto) reste sur la carte 0.
 # PC labo (1 carte) : 0. Machine à 2 cartes (RunPod) : 1 → la voix ne ralentit plus le visage.
@@ -528,12 +580,9 @@ class Session:
                 self.dit_recemment.append(p)
                 self.envoyer({"type": "phrase", "texte": p})
                 t_voix = time.perf_counter()
-                for morceau, sr, _ in parler(p):
+                for morceau in parler_controle(p):
                     m.setdefault("t_son1", time.perf_counter())
-                    m["audio_s"] = m.get("audio_s", 0) + len(np.asarray(morceau).reshape(-1)) / sr
-                    morceau = np.asarray(morceau, np.float32).reshape(-1)
-                    if sr != 24000:
-                        morceau = resample_poly(morceau, 24000, sr).astype(np.float32)
+                    m["audio_s"] = m.get("audio_s", 0) + len(morceau) / 24000
                     VISAGE.pousser(morceau)
                 m["calcul_voix_s"] = m.get("calcul_voix_s", 0) + time.perf_counter() - t_voix
             m["t_voix_finie"] = time.perf_counter()
@@ -782,10 +831,7 @@ async def websocket(request):
 
 def rendre_clip(phrase):
     """Voix clonée + visage pour une phrase d'attente → liste de paquets (pcm 40 ms, jpeg)."""
-    morceaux = EXEC.submit(lambda: [
-        (np.asarray(a, np.float32).reshape(-1), sr) for a, sr, _ in parler(phrase)]).result()
-    audio = np.concatenate([a if sr == 24000 else resample_poly(a, 24000, sr).astype(np.float32)
-                            for a, sr in morceaux])
+    audio = np.concatenate(EXEC.submit(lambda: list(parler_controle(phrase))).result())
     # silences de début et de fin coupés (phrase d'attente : 1 à 1,5 s, pas plus)
     fort = np.flatnonzero(np.abs(audio) > 0.02 * np.abs(audio).max())
     if len(fort):
@@ -830,7 +876,11 @@ def charger():
     EXEC.submit(lambda: list(TTS.generate_voice_clone_streaming(
         text="Bonjour.", language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE,
         chunk_size=TTS_CHUNK))).result()
-    log(f"Voix {TAILLE_VOIX} prête ({time.perf_counter() - t:.0f} s)")
+    global REF_HAUTEUR
+    ref, sr_ref = sf.read(REF_AUDIO, dtype="float32")
+    REF_HAUTEUR = hauteur_mediane(ref if sr_ref == 24000 else resample_poly(ref, 24000, sr_ref).astype(np.float32))
+    log(f"Voix {TAILLE_VOIX} prête ({time.perf_counter() - t:.0f} s) — hauteur de la référence {REF_HAUTEUR:.0f} Hz, "
+        f"plage acceptée {CONTROLE_BORNES[0] * REF_HAUTEUR:.0f}–{CONTROLE_BORNES[1] * REF_HAUTEUR:.0f} Hz")
 
     t = time.perf_counter()
     if not SOURCE.exists():
@@ -876,7 +926,8 @@ def charger():
     t = time.perf_counter()
     global CLIPS
     CLIPS = attente.charger(rendre_clip, ("silences coupés", TAILLE_VOIX, PAS_DIFFUSION, HAUTEUR_SOURCE, LARGEUR_VIDEO, QUALITE_JPEG,
-                                          os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA, VOIX_TEMPERATURE))
+                                          os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA, VOIX_TEMPERATURE,
+                                          "contrôle voix 1"))
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
