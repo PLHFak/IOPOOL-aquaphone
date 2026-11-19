@@ -82,6 +82,18 @@ REF_TEXTE = (
     "discussion et ce sera bien."
 )
 TTS_CHUNK = 4
+# Voix stable d'une phrase à l'autre : tirage moins « créatif » (défaut 0,9 → timbre, débit, voire genre
+# qui varient) et même graine à chaque phrase.
+VOIX_TEMPERATURE = float(os.environ.get("AQUAPHONE_VOIX_TEMPERATURE", "0.6"))
+VOIX_GRAINE = 1234
+
+
+def parler(texte):
+    """Synthèse clonée en flux, réglages identiques pour toutes les phrases (appelée dans le fil EXEC)."""
+    torch.manual_seed(VOIX_GRAINE)
+    return TTS.generate_voice_clone_streaming(text=texte, language="French", ref_audio=REF_AUDIO,
+                                              ref_text=REF_TEXTE, chunk_size=TTS_CHUNK,
+                                              temperature=VOIX_TEMPERATURE, top_k=30)
 TAILLE_VOIX = os.environ.get("AQUAPHONE_VOIX", "1.7B")  # 1.7B ou 0.6B
 # Carte graphique de la voix et de la transcription. Le visage (Ditto) reste sur la carte 0.
 # PC labo (1 carte) : 0. Machine à 2 cartes (RunPod) : 1 → la voix ne ralentit plus le visage.
@@ -207,6 +219,11 @@ class Ecoute:
 
 def _mots(texte):
     return re.findall(r"\w+", texte.lower())
+
+
+# Phrases que Whisper invente sur du bruit : reprise de son invite, génériques de sous-titres.
+HALLUCINATION = re.compile(r"client parle à l.assistant|assistant de son piscin|sous-titr|ST' ?501|amara\.org|"
+                           r"merci d.avoir regardé|abonnez-vous", re.I)
 
 
 def est_echo(texte, dit):
@@ -427,7 +444,12 @@ class Session:
             if texte is None:
                 segments, _ = WHISPER.transcribe(audio, language="fr", beam_size=1, vad_filter=False,
                                                  initial_prompt=PROMPT_STT, condition_on_previous_text=False)
-                texte = " ".join(s.text.strip() for s in segments).strip()
+                # segments jugés « sans parole » par Whisper (bruit, télé lointaine) écartés
+                texte = " ".join(s.text.strip() for s in segments
+                                 if not (s.no_speech_prob > 0.6 and s.avg_logprob < -0.8)).strip()
+                if HALLUCINATION.search(texte):
+                    log(f"Transcription inventée par Whisper ignorée : « {texte} »")
+                    texte = ""
                 m["duree_parole"] = len(audio) / 16000
             m["t_stt"] = time.perf_counter()
             if not complet and texte.endswith(("...", "…")):
@@ -502,8 +524,7 @@ class Session:
                 self.dit_recemment.append(p)
                 self.envoyer({"type": "phrase", "texte": p})
                 t_voix = time.perf_counter()
-                for morceau, sr, _ in TTS.generate_voice_clone_streaming(
-                        text=p, language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE, chunk_size=TTS_CHUNK):
+                for morceau, sr, _ in parler(p):
                     m.setdefault("t_son1", time.perf_counter())
                     m["audio_s"] = m.get("audio_s", 0) + len(np.asarray(morceau).reshape(-1)) / sr
                     morceau = np.asarray(morceau, np.float32).reshape(-1)
@@ -659,8 +680,7 @@ async def websocket(request):
 def rendre_clip(phrase):
     """Voix clonée + visage pour une phrase d'attente → liste de paquets (pcm 40 ms, jpeg)."""
     morceaux = EXEC.submit(lambda: [
-        (np.asarray(a, np.float32).reshape(-1), sr) for a, sr, _ in TTS.generate_voice_clone_streaming(
-            text=phrase, language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE, chunk_size=TTS_CHUNK)]).result()
+        (np.asarray(a, np.float32).reshape(-1), sr) for a, sr, _ in parler(phrase)]).result()
     audio = np.concatenate([a if sr == 24000 else resample_poly(a, 24000, sr).astype(np.float32)
                             for a, sr in morceaux])
     # silences de début et de fin coupés (phrase d'attente : 1 à 1,5 s, pas plus)
@@ -753,7 +773,7 @@ def charger():
     t = time.perf_counter()
     global CLIPS
     CLIPS = attente.charger(rendre_clip, ("silences coupés", TAILLE_VOIX, PAS_DIFFUSION, HAUTEUR_SOURCE, LARGEUR_VIDEO, QUALITE_JPEG,
-                                          os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA))
+                                          os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA, VOIX_TEMPERATURE))
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 

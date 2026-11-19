@@ -31,7 +31,8 @@ def main():
     pipe = StableDiffusionXLPipeline.from_pretrained(MODELE, torch_dtype=torch.float16, variant="fp16",
                                                      use_safetensors=True).to("cuda")
     invite = f"{fiche['description_visage']}, {CADRAGE}"
-    for graine in range(n):
+    premier = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+    for graine in range(premier, premier + n):
         g = torch.Generator("cuda").manual_seed(1000 + graine)
         image = pipe(invite, negative_prompt=NEGATIF, width=832, height=1216, num_inference_steps=30,
                      guidance_scale=5.0, generator=g).images[0]

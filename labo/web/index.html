@@ -23,6 +23,7 @@
   button { font:inherit; font-weight:600; border:0; border-radius:12px; padding:14px 18px; color:#062027;
            background:var(--accent); cursor:pointer; }
   #demarrer { width:100%; margin-top:14px; font-size:18px; }
+  #demarrer.coupe { background:var(--alerte); color:#fff; }
   form { display:flex; gap:8px; margin-top:12px; }
   input { flex:1; min-width:0; font:inherit; padding:12px; border-radius:12px; border:1px solid #2b4350;
           background:var(--carte); color:var(--texte); }
@@ -99,7 +100,16 @@ class Micro extends AudioWorkletProcessor {
 }
 registerProcessor('micro', Micro);`;
 
+let micCoupe = false;
+function basculerMicro() {
+  micCoupe = !micCoupe;
+  const b = document.getElementById('demarrer');
+  b.classList.toggle('coupe', micCoupe);
+  b.textContent = micCoupe ? '🔇 Micro coupé — toucher pour réactiver' : '🎙️ Micro ouvert — toucher pour couper';
+}
+
 document.getElementById('demarrer').onclick = async (e) => {
+  if (ctx) { basculerMicro(); return; }
   if (!navigator.mediaDevices || !window.isSecureContext) {
     etat('erreur', 'Page non sécurisée : ouvrez l’adresse https://…ts.net'); return;
   }
@@ -116,9 +126,11 @@ document.getElementById('demarrer').onclick = async (e) => {
     // Anti-écho : la page sait exactement quand le haut-parleur joue → micro coupé pendant la lecture
     // et GARDE_ECHO secondes après (réverbération, latence de sortie du son).
     noeud.port.onmessage = (m) => {
+      if (micCoupe) return;  // bouton « micro coupé » : plus rien n'est envoyé au serveur
       if (ctx.currentTime < lecture + (ctx.outputLatency || 0) + GARDE_ECHO) return;
       if (ws && ws.readyState === 1) ws.send(m.data);
     };
+    e.target.disabled = false; micCoupe = true; basculerMicro();
   } catch (err) {
     etat('erreur', 'Micro indisponible : ' + err.message + ' (la saisie au clavier reste possible)');
   }
