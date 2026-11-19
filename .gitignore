@@ -16,3 +16,8 @@ connaissances/
 personas/*/*.jpg
 personas/*/*.png
 personas/*/candidats/
+
+# Piscine dictée par le client et choix courants (données privées)
+piscines/dictee.md
+piscines/choix.txt
+personas/actif.txt

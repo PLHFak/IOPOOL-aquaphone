@@ -20,6 +20,8 @@ import queue
 import re
 import secrets
 import struct
+import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -45,6 +47,8 @@ from scipy.signal import resample_poly  # noqa: E402
 
 import cerveau  # noqa: E402  (charge aussi .env)
 import acces  # noqa: E402
+import personas  # noqa: E402
+import piscines  # noqa: E402
 import attente  # noqa: E402
 import contexte  # noqa: E402
 import mode_labo  # noqa: E402
@@ -73,7 +77,7 @@ PROMPT_STT = "Aquaphone. Un client parle à l'assistant de son pisciniste : pisc
 
 # Personnage (visage + voix) : AQUAPHONE_PERSONA=pierre (défaut) ou un dossier personas/<nom>/
 # contenant fiche.json (texte_reference), visage.jpg et voix.wav (jamais commités).
-PERSONA = os.environ.get("AQUAPHONE_PERSONA", "pierre")
+PERSONA = os.environ.get("AQUAPHONE_PERSONA") or personas.actif()  # choix du menu (personas/actif.txt)
 REF_AUDIO = str(RACINE / "models" / "ref_pierre.wav")
 REF_TEXTE = (
     "Bonjour, je m'appelle Pierre L'Hoest, je suis votre pisciniste, ici c'est mon clone "
@@ -507,7 +511,7 @@ class Session:
             def penser():
                 try:
                     for p in cerveau.phrases_en_flux(CLIENT, list(self.historique), mesures=mc,
-                                                     documents=DOCUMENTS):
+                                                     documents=DOCUMENTS, piscine=piscines.texte()):
                         m.setdefault("t_phrase1", time.perf_counter())
                         phrases.put(p)
                 except Exception as e:  # transmis au fil gpu
@@ -626,6 +630,105 @@ async def note(request):
             s.envoyer(n)
         log(f"Note de Claude Code affichée sur {len(SESSIONS)} page(s)")
     return web.Response(text="ok")
+
+
+async def liste_personas(request):
+    return web.json_response({"personas": personas.liste(PERSONA), "texte_a_lire": personas.TEXTE_A_LIRE,
+                              "consentement": personas.CONSENTEMENT})
+
+
+async def photo_persona(request):
+    chemin = personas.photo(request.match_info["nom"])
+    if request.match_info["nom"] not in [p["nom"] for p in personas.liste(PERSONA)] or not chemin.exists():
+        raise web.HTTPNotFound()
+    return web.FileResponse(chemin, headers={"Cache-Control": "no-store"})
+
+
+async def deposer_persona(request):
+    """Dépôt photo + voix dans une place libre (accord obligatoire)."""
+    nom = request.match_info["nom"]
+    donnees = await request.post()
+    if donnees.get("accord") != "oui":
+        return web.json_response({"erreur": "Accord obligatoire."}, status=400)
+    image, voix = donnees.get("photo"), donnees.get("voix")
+    if not hasattr(image, "file") or not hasattr(voix, "file"):
+        return web.json_response({"erreur": "Photo et voix obligatoires."}, status=400)
+
+    def transcrire(chemin):
+        segments, _ = WHISPER.transcribe(chemin, language="fr", beam_size=5, vad_filter=True)
+        return " ".join(s.text.strip() for s in segments).strip()
+
+    try:
+        texte = await asyncio.get_running_loop().run_in_executor(
+            EXEC, personas.enregistrer, nom, str(donnees.get("prenom", "")), image.file.read(), voix.file.read(),
+            transcrire)
+    except (ValueError, OSError, subprocess.CalledProcessError) as e:
+        return web.json_response({"erreur": str(e)}, status=400)
+    log(f"Personnage déposé dans {nom} (accord donné) : « {texte} »")
+    return web.json_response({"ok": True, "texte": texte})
+
+
+async def choisir_persona(request):
+    """Change de personnage : écrit le choix puis redémarre le serveur (relancé par runpod/boucle.sh)."""
+    nom = (await request.json()).get("nom", "")
+    if not personas.pret(nom):
+        return web.json_response({"erreur": "Personnage incomplet."}, status=400)
+    personas.choisir(nom)
+    log(f"Changement de personnage → {nom} : redémarrage")
+    for s in list(SESSIONS):
+        s.envoyer({"type": "redemarrage", "nom": nom})
+    asyncio.get_running_loop().call_later(1.0, os._exit, 0)
+    return web.json_response({"ok": True})
+
+
+async def etat_piscine(request):
+    return web.json_response(piscines.etat())
+
+
+async def choisir_piscine(request):
+    try:
+        piscines.choisir((await request.json()).get("choix", ""))
+    except ValueError as e:
+        return web.json_response({"erreur": str(e)}, status=400)
+    log(f"Piscine du client : {piscines.choix()}")
+    return web.json_response(piscines.etat())
+
+
+async def dicter_piscine(request):
+    """Description de la piscine : enregistrement vocal (transcrit par Whisper) et/ou texte libre."""
+    donnees = await request.post()
+    morceaux = []
+    voix = donnees.get("voix")
+    if hasattr(voix, "file"):
+        def transcrire(octets):
+            with tempfile.TemporaryDirectory() as d:
+                brut, wav = Path(d) / "brut.bin", Path(d) / "voix16k.wav"
+                brut.write_bytes(octets)
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(brut), "-ac", "1", "-ar", "16000",
+                                str(wav)], check=True)
+                segments, _ = WHISPER.transcribe(str(wav), language="fr", beam_size=5, vad_filter=True)
+                return " ".join(s.text.strip() for s in segments).strip()
+        try:
+            dit = await asyncio.get_running_loop().run_in_executor(EXEC, transcrire, voix.file.read())
+        except (OSError, subprocess.CalledProcessError) as e:
+            return web.json_response({"erreur": f"enregistrement illisible ({e})"}, status=400)
+        if dit:
+            piscines.ajouter_dictee(dit, "Dicté")
+            morceaux.append(dit)
+    ecrit = str(donnees.get("texte", "")).strip()
+    if ecrit:
+        piscines.ajouter_dictee(ecrit, "Écrit")
+        morceaux.append(ecrit)
+    if not morceaux:
+        return web.json_response({"erreur": "Rien d'audible ni d'écrit."}, status=400)
+    log(f"Piscine dictée : {sum(len(m) for m in morceaux)} caractères ajoutés")
+    return web.json_response({**piscines.etat(), "ajoute": " ".join(morceaux)})
+
+
+async def effacer_piscine(request):
+    piscines.effacer_dictee()
+    log("Description dictée de la piscine effacée (demande depuis la page)")
+    return web.json_response(piscines.etat())
 
 
 async def page(request):
@@ -803,9 +906,13 @@ def main():
     async def connexion(request):
         return await acces.connexion(request, log)
 
-    app = web.Application(middlewares=[acces.garde])
+    app = web.Application(middlewares=[acces.garde], client_max_size=40 * 1024 * 1024)
     app.add_routes([web.get("/", page), web.get("/photo.jpg", photo), web.get("/ws", websocket),
-                    web.post("/note", note), web.get("/connexion", connexion), web.post("/connexion", connexion)])
+                    web.post("/note", note), web.get("/connexion", connexion), web.post("/connexion", connexion),
+                    web.get("/personas", liste_personas), web.get("/personas/{nom}/photo", photo_persona),
+                    web.post("/personas/{nom}", deposer_persona), web.post("/persona", choisir_persona),
+                    web.get("/piscine", etat_piscine), web.post("/piscine/choix", choisir_piscine),
+                    web.post("/piscine/dictee", dicter_piscine), web.post("/piscine/effacer", effacer_piscine)])
     FICHIER_JETON.parent.mkdir(exist_ok=True)
     FICHIER_JETON.write_text(JETON, encoding="utf-8")
     log(f"Serveur prêt : http://{HOTE}:{PORT}/  (via Tailscale : tailscale serve --bg {PORT}) — "

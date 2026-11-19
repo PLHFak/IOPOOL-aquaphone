@@ -8,9 +8,48 @@
   :root { --fond:#0c1a22; --carte:#14262f; --texte:#e7f0f4; --doux:#8ca4b0; --accent:#29b2bf; --alerte:#e0795c; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--fond); color:var(--texte); font:16px/1.4 -apple-system, system-ui, sans-serif;
-         display:flex; flex-direction:column; align-items:center; padding:0 16px 32px; }
-  #scene { position:relative; width:min(100%, 440px); aspect-ratio:3/4; margin-top:12px; border-radius:16px;
+         display:flex; flex-direction:column; align-items:center;
+         padding:max(10px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+  #scene { position:relative; width:min(100%, 440px, calc(64vh * 0.7)); aspect-ratio:3/4; border-radius:18px;
            overflow:hidden; background:#000; }
+  #menu-bouton { position:absolute; top:10px; right:10px; width:44px; height:44px; padding:0; border-radius:12px;
+                 font-size:24px; line-height:44px; background:rgba(0,0,0,.45); color:#fff; backdrop-filter:blur(6px); }
+  #menu { position:fixed; inset:0; z-index:10; display:none; background:rgba(5,12,16,.6); }
+  #menu.ouvert { display:block; }
+  #menu .panneau { position:absolute; top:0; right:0; bottom:0; width:min(100%, 420px); overflow-y:auto;
+                   background:var(--fond); padding:max(16px, env(safe-area-inset-top)) 16px 32px;
+                   box-shadow:-8px 0 24px rgba(0,0,0,.4); }
+  #menu h2 { font-size:18px; margin:18px 0 8px; }
+  #menu .entete { display:flex; justify-content:space-between; align-items:center; }
+  #menu .fermer { background:var(--carte); color:var(--texte); padding:10px 14px; }
+  .perso { display:flex; align-items:center; gap:12px; padding:10px; margin:8px 0; border-radius:14px;
+           background:var(--carte); border:2px solid transparent; }
+  .perso.actif { border-color:var(--accent); }
+  .perso img, .perso .vide { width:52px; height:52px; border-radius:50%; object-fit:cover; flex:none;
+                             background:#22363f; display:flex; align-items:center; justify-content:center; font-size:22px; }
+  .perso .nom { flex:1; font-weight:600; }
+  .perso .nom small { display:block; font-weight:400; color:var(--doux); }
+  .perso button { padding:10px 12px; font-size:14px; }
+  .perso button.secondaire { background:var(--carte); color:var(--texte); border:1px solid #2b4350; }
+  #depot { display:none; flex-direction:column; gap:0; background:var(--carte); border-radius:14px; padding:12px; margin-top:8px; }
+  #depot.ouvert { display:flex; }
+  #depot label { display:block; margin:10px 0 4px; font-size:14px; color:var(--doux); }
+  #depot .a-lire { background:#0c1a22; border-radius:10px; padding:10px; font-style:italic; }
+  .accord { display:flex !important; gap:10px; align-items:flex-start; color:var(--texte) !important; font-size:13px; }
+  .accord input { flex:none; width:22px; height:22px; margin-top:2px; }
+  #depot button { width:100%; margin-top:10px; }
+  #enregistrer.actif { background:var(--alerte); color:#fff; }
+  #mesures.cache { display:none; }
+  .choix-piscine { display:flex; gap:8px; }
+  .choix-piscine button { flex:1; background:var(--carte); color:var(--texte); border:2px solid #2b4350; padding:12px 8px; font-size:15px; }
+  .choix-piscine button.actif { border-color:var(--accent); background:#123642; }
+  #fiche-piscine { white-space:pre-wrap; font-size:13px; max-height:220px; overflow-y:auto; background:var(--carte);
+                   border-radius:12px; padding:10px; margin-top:8px; color:var(--doux); }
+  #dictee-piscine { background:var(--carte); border-radius:14px; padding:12px; margin-top:8px; }
+  #dictee-piscine textarea { width:100%; min-height:80px; font:inherit; padding:10px; border-radius:10px;
+                             border:1px solid #2b4350; background:var(--fond); color:var(--texte); margin-top:8px; }
+  #dictee-piscine button { width:100%; margin-top:8px; }
+  #dicter.actif { background:var(--alerte); color:#fff; }
   canvas { width:100%; height:100%; display:block; }
   #etat { position:absolute; left:0; right:0; bottom:0; padding:10px 14px; font-weight:600;
           background:linear-gradient(transparent, rgba(0,0,0,.75)); }
@@ -45,23 +84,68 @@
 <body>
 <div id="scene">
   <canvas id="ecran" width="540" height="720"></canvas>
+  <button id="menu-bouton" aria-label="Menu">☰</button>
   <div id="mode">Mode labo · Claude Code</div>
   <div id="etat"><span class="point"></span><span id="etat-texte">Appuyez sur « Démarrer »</span></div>
 </div>
 <div class="bloc">
   <button id="demarrer">Démarrer (micro + son)</button>
   <form id="saisie"><input id="question" placeholder="…ou tapez une question" autocomplete="off"><button>Envoyer</button></form>
-  <table id="mesures"></table>
+  <table id="mesures" class="cache"></table>
   <div id="journal"></div>
   <p class="note">Labo Aquaphone — vous parlez à une IA (assistant de Marc). Parlez, puis marquez une courte pause.
     Commencez par « Aquaphone » pour parler au labo (Claude Code répond par écrit dans le terminal), par « iopool » pour revenir en client.</p>
 </div>
+<div id="menu"><div class="panneau">
+  <div class="entete"><b>Aquaphone</b><button class="fermer" id="menu-fermer">Fermer ✕</button></div>
+  <h2>Personnage</h2>
+  <p class="note">Changer de personnage redémarre l'assistant (≈ 2 min).</p>
+  <div id="personas"></div>
+  <form id="depot">
+    <b id="depot-titre">Déposer votre photo et votre voix</b>
+    <label>Prénom</label><input type="text" name="prenom" maxlength="40" required>
+    <label>Photo de face, bouche fermée, visage bien éclairé</label>
+    <input type="file" name="photo" accept="image/*" required>
+    <label>Votre voix : touchez « Enregistrer » et lisez ce texte (≈ 12 s)</label>
+    <div class="a-lire" id="a-lire"></div>
+    <button type="button" id="enregistrer">🎙️ Enregistrer ma voix</button>
+    <audio id="ecoute" controls style="width:100%;margin-top:8px;display:none"></audio>
+    <label class="accord"><input type="checkbox" name="accord" value="oui" required><span id="texte-accord"></span></label>
+    <button type="submit" id="depot-envoyer">Envoyer</button>
+    <p class="note" id="depot-etat"></p>
+  </form>
+  <h2>Piscine du client</h2>
+  <p class="note">L'assistant connaît la piscine choisie, dès la question suivante.</p>
+  <div class="choix-piscine">
+    <button type="button" data-choix="standard">Piscine standard (démo)</button>
+    <button type="button" data-choix="dictee">Piscine dictée</button>
+  </div>
+  <div id="fiche-piscine"></div>
+  <div id="dictee-piscine">
+    <b>Décrire la piscine à la voix</b>
+    <p class="note">Dimensions, volume, équipement, traitement, mesures, historique, ce que vous voyez dans l'eau…
+      Soyez aussi détaillé que vous voulez (jusqu'à 5 min). Chaque enregistrement s'ajoute au précédent.</p>
+    <button type="button" id="dicter">🎙️ Dicter la description</button>
+    <textarea id="texte-piscine" placeholder="…ou écrivez / collez ici (ex. export de mesures)"></textarea>
+    <button type="button" id="envoyer-piscine">Ajouter à la description</button>
+    <button type="button" id="effacer-piscine" class="fermer" style="background:var(--carte);color:var(--texte)">Effacer la piscine dictée</button>
+    <p class="note" id="etat-piscine"></p>
+  </div>
+  <h2>Affichage</h2>
+  <label class="accord"><input type="checkbox" id="voir-mesures"> Afficher les mesures de délai</label>
+</div></div>
 <script>
 const ecran = document.getElementById('ecran'), g = ecran.getContext('2d');
 const etatEl = document.getElementById('etat'), etatTexte = document.getElementById('etat-texte');
 const journal = document.getElementById('journal'), tableau = document.getElementById('mesures');
 const photo = new Image();
-photo.onload = () => g.drawImage(photo, 0, 0, ecran.width, ecran.height);
+photo.onload = () => {  // le canevas prend les proportions de la photo du personnage
+  ecran.width = photo.naturalWidth; ecran.height = photo.naturalHeight;
+  const scene = document.getElementById('scene'), r = photo.naturalWidth / photo.naturalHeight;
+  scene.style.aspectRatio = photo.naturalWidth + '/' + photo.naturalHeight;
+  scene.style.width = 'min(100%, 440px, calc(64vh * ' + r + '))';
+  g.drawImage(photo, 0, 0, ecran.width, ecran.height);
+};
 photo.src = 'photo.jpg';
 
 const TAMPON_DEBUT = 1.0;      // s de réserve au début de chaque réponse (le visage peut prendre du retard)
@@ -134,7 +218,6 @@ document.getElementById('demarrer').onclick = async (e) => {
   } catch (err) {
     etat('erreur', 'Micro indisponible : ' + err.message + ' (la saisie au clavier reste possible)');
   }
-  e.target.style.display = 'none';
   connecter();
   requestAnimationFrame(dessiner);
 };
@@ -149,6 +232,7 @@ document.getElementById('saisie').onsubmit = (e) => {
 function connecter() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { photo.src = 'photo.jpg?' + Date.now(); chargerPersonas(); };
   ws.onmessage = (e) => typeof e.data === 'string' ? message(JSON.parse(e.data)) : paquet(e.data);
   ws.onclose = () => {
     etat('erreur', 'Connexion perdue — reconnexion…');
@@ -230,8 +314,158 @@ function message(m) {
         `<tr class="${k === 'total_percu' ? 'total' : ''}"><td>${l}</td><td>${m[k] == null ? '—' : m[k] + ' ms'}</td></tr>`).join('');
       break;
     case 'erreur': etat('erreur', 'Erreur : ' + m.texte); break;
+    case 'redemarrage': etat('reflexion', 'Changement de personnage… (≈ 2 min)'); break;
   }
 }
+
+// ─── Menu ☰ : personnages, dépôt photo + voix, affichage ───────────────────────────
+const menu = document.getElementById('menu'), depot = document.getElementById('depot');
+document.getElementById('menu-bouton').onclick = () => { menu.classList.add('ouvert'); chargerPersonas(); chargerPiscine(); };
+document.getElementById('menu-fermer').onclick = () => menu.classList.remove('ouvert');
+menu.onclick = (e) => { if (e.target === menu) menu.classList.remove('ouvert'); };
+document.getElementById('voir-mesures').onchange = (e) => tableau.classList.toggle('cache', !e.target.checked);
+let placeChoisie = null, voixEnregistree = null;
+
+async function chargerPersonas() {
+  const r = await fetch('/personas'); if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('a-lire').textContent = d.texte_a_lire;
+  document.getElementById('texte-accord').textContent = d.consentement;
+  const zone = document.getElementById('personas'); zone.innerHTML = '';
+  for (const p of d.personas) {
+    const el = document.createElement('div'); el.className = 'perso' + (p.actif ? ' actif' : '');
+    let vignette;
+    if (p.pret) { vignette = document.createElement('img'); vignette.src = '/personas/' + p.nom + '/photo?' + Date.now(); }
+    else { vignette = document.createElement('div'); vignette.className = 'vide'; vignette.textContent = '＋'; }
+    const nom = document.createElement('div'); nom.className = 'nom'; nom.textContent = p.libelle;
+    const sous = document.createElement('small');
+    sous.textContent = p.actif ? 'En service' : p.fictif ? 'Personne fictive' : p.pret ? 'Prêt' : 'Photo + voix à déposer';
+    nom.append(sous); el.append(vignette, nom);
+    if (p.pret && !p.actif) {
+      const b = document.createElement('button'); b.textContent = 'Choisir';
+      b.onclick = () => choisirPersona(p.nom, p.libelle); el.append(b);
+    }
+    if (p.place) {
+      const b = document.createElement('button'); b.className = 'secondaire'; b.textContent = p.pret ? 'Remplacer' : 'Déposer';
+      b.onclick = () => ouvrirDepot(p.nom, p.libelle); el.append(b);
+    }
+    zone.append(el);
+  }
+}
+
+async function choisirPersona(nom, libelle) {
+  if (!confirm('Passer à « ' + libelle + ' » ? L’assistant redémarre (≈ 2 min).')) return;
+  const r = await fetch('/persona', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }) });
+  if (r.ok) { menu.classList.remove('ouvert'); etat('reflexion', 'Changement de personnage… (≈ 2 min)'); }
+  else alert((await r.json()).erreur || 'Échec');
+}
+
+function ouvrirDepot(nom, libelle) {
+  placeChoisie = nom; voixEnregistree = null;
+  depot.reset(); depot.classList.add('ouvert');
+  document.getElementById('depot-titre').textContent = 'Déposer votre photo et votre voix (' + libelle + ')';
+  document.getElementById('ecoute').style.display = 'none';
+  document.getElementById('depot-etat').textContent = '';
+  depot.scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('enregistrer').onclick = async (e) => {
+  const b = e.target;
+  if (b.enregistreur) { b.enregistreur.stop(); return; }
+  const coupeAvant = micCoupe;
+  if (ctx && !micCoupe) basculerMicro();  // la conversation n'écoute pas pendant l'enregistrement
+  try {
+    const flux = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, channelCount: 1 } });
+    const morceaux = [], rec = new MediaRecorder(flux);
+    rec.ondataavailable = (x) => morceaux.push(x.data);
+    rec.onstop = () => {
+      flux.getTracks().forEach((t) => t.stop());
+      voixEnregistree = new Blob(morceaux, { type: rec.mimeType || 'audio/mp4' });
+      const a = document.getElementById('ecoute'); a.src = URL.createObjectURL(voixEnregistree); a.style.display = 'block';
+      b.enregistreur = null; b.classList.remove('actif'); b.textContent = '🎙️ Recommencer l’enregistrement';
+      if (ctx && micCoupe && !coupeAvant) basculerMicro();
+    };
+    rec.start(); b.enregistreur = rec; b.classList.add('actif'); b.textContent = '⏹ Arrêter (lisez le texte)';
+    setTimeout(() => { if (b.enregistreur === rec) rec.stop(); }, 20000);
+  } catch (err) { alert('Micro indisponible : ' + err.message); }
+};
+
+depot.onsubmit = async (e) => {
+  e.preventDefault();
+  const etatDepot = document.getElementById('depot-etat');
+  if (!voixEnregistree) { etatDepot.textContent = 'Enregistrez d’abord votre voix.'; return; }
+  const f = new FormData(depot);
+  f.set('voix', voixEnregistree, 'voix' + (voixEnregistree.type.includes('webm') ? '.webm' : '.m4a'));
+  etatDepot.textContent = 'Envoi et vérification de la voix…';
+  document.getElementById('depot-envoyer').disabled = true;
+  try {
+    const r = await fetch('/personas/' + placeChoisie, { method: 'POST', body: f });
+    const d = await r.json();
+    etatDepot.textContent = r.ok ? 'Reçu ✓ — texte entendu : « ' + d.texte + ' ». Vous pouvez maintenant le choisir.'
+                                 : 'Erreur : ' + d.erreur;
+    if (r.ok) chargerPersonas();
+  } catch (err) { etatDepot.textContent = 'Erreur réseau : ' + err.message; }
+  document.getElementById('depot-envoyer').disabled = false;
+};
+
+// ─── Piscine du client : standard (démo) ou dictée ────────────────────────────────
+const etatPiscine = document.getElementById('etat-piscine');
+function afficherPiscine(d) {
+  document.querySelectorAll('.choix-piscine button').forEach((b) => b.classList.toggle('actif', b.dataset.choix === d.choix));
+  document.getElementById('fiche-piscine').textContent =
+    (d.choix === 'dictee' ? d.dictee : d.standard) || 'Aucune description dictée pour l’instant : utilisez « Dicter » ci-dessous.';
+}
+async function chargerPiscine() {
+  const r = await fetch('/piscine'); if (r.ok) afficherPiscine(await r.json());
+}
+document.querySelectorAll('.choix-piscine button').forEach((b) => b.onclick = async () => {
+  const r = await fetch('/piscine/choix', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                           body: JSON.stringify({ choix: b.dataset.choix }) });
+  if (r.ok) afficherPiscine(await r.json());
+});
+async function envoyerPiscine(voix) {
+  const f = new FormData();
+  if (voix) f.set('voix', voix, 'piscine' + (voix.type.includes('webm') ? '.webm' : '.m4a'));
+  const t = document.getElementById('texte-piscine').value.trim();
+  if (t) f.set('texte', t);
+  if (!voix && !t) { etatPiscine.textContent = 'Dictez ou écrivez d’abord une description.'; return; }
+  etatPiscine.textContent = voix ? 'Transcription en cours…' : 'Envoi…';
+  const r = await fetch('/piscine/dictee', { method: 'POST', body: f });
+  const d = await r.json();
+  if (r.ok) {
+    document.getElementById('texte-piscine').value = '';
+    etatPiscine.textContent = 'Ajouté ✓ : « ' + d.ajoute.slice(0, 200) + (d.ajoute.length > 200 ? '…' : '') + ' »';
+    await fetch('/piscine/choix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ choix: 'dictee' }) });
+    chargerPiscine();
+  } else etatPiscine.textContent = 'Erreur : ' + d.erreur;
+}
+document.getElementById('envoyer-piscine').onclick = () => envoyerPiscine(null);
+document.getElementById('effacer-piscine').onclick = async () => {
+  if (!confirm('Effacer toute la description dictée de la piscine ?')) return;
+  const r = await fetch('/piscine/effacer', { method: 'POST' });
+  if (r.ok) { afficherPiscine(await r.json()); etatPiscine.textContent = 'Description dictée effacée.'; }
+};
+document.getElementById('dicter').onclick = async (e) => {
+  const b = e.target;
+  if (b.enregistreur) { b.enregistreur.stop(); return; }
+  const coupeAvant = micCoupe;
+  if (ctx && !micCoupe) basculerMicro();  // la conversation n'écoute pas pendant la dictée
+  try {
+    const flux = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+    const morceaux = [], rec = new MediaRecorder(flux);
+    rec.ondataavailable = (x) => morceaux.push(x.data);
+    rec.onstop = () => {
+      flux.getTracks().forEach((t) => t.stop());
+      b.enregistreur = null; b.classList.remove('actif'); b.textContent = '🎙️ Dicter la suite';
+      if (ctx && micCoupe && !coupeAvant) basculerMicro();
+      envoyerPiscine(new Blob(morceaux, { type: rec.mimeType || 'audio/mp4' }));
+    };
+    rec.start(); b.enregistreur = rec; b.classList.add('actif'); b.textContent = '⏹ Terminer la dictée';
+    setTimeout(() => { if (b.enregistreur === rec) rec.stop(); }, 5 * 60 * 1000);
+  } catch (err) { alert('Micro indisponible : ' + err.message); }
+};
+chargerPersonas();
+chargerPiscine();
 </script>
 </body>
 </html>

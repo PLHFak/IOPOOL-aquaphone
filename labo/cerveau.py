@@ -23,15 +23,24 @@ PROMPT_SYSTEME = """Tu es l'assistant vocal de Marc, pisciniste. Tu parles à un
 FIN_DE_PHRASE = re.compile(r"(.+?[.!?…])(\s+|$)", re.S)
 
 
-def systeme(documents=""):
-    """Prompt système ; la documentation (longue, fixe) est mise en cache 1 h côté API."""
-    if not documents:
+def systeme(documents="", piscine=""):
+    """Prompt système ; la documentation (longue, fixe) est mise en cache 1 h côté API.
+
+    `piscine` : fiche de la piscine du client (choisie dans le menu), placée APRÈS le point de cache :
+    la changer n'invalide pas le cache de la documentation.
+    """
+    if not documents and not piscine:
         return PROMPT_SYSTEME
-    return [{"type": "text", "text": PROMPT_SYSTEME},
-            {"type": "text", "text": documents, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    blocs = [{"type": "text", "text": PROMPT_SYSTEME}]
+    if documents:
+        blocs.append({"type": "text", "text": documents, "cache_control": {"type": "ephemeral", "ttl": "1h"}})
+    if piscine:
+        blocs.append({"type": "text", "text": f"<piscine_du_client>\n{piscine}\n</piscine_du_client>"})
+    return blocs
 
 
-def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, documents="", **options):
+def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, documents="", piscine="",
+                    **options):
     """Génère la réponse phrase par phrase dès que chacune est complète.
 
     `mesures` (dict) reçoit : premier_mot, premiere_phrase, total (secondes depuis l'appel).
@@ -40,7 +49,7 @@ def phrases_en_flux(client, historique, modele=MODELE_PAR_DEFAUT, mesures=None, 
     t0 = time.perf_counter()
     tampon = ""
     with client.messages.stream(
-        model=modele, max_tokens=1024, system=systeme(documents), messages=historique, **options
+        model=modele, max_tokens=1024, system=systeme(documents, piscine), messages=historique, **options
     ) as flux:
         for morceau in flux.text_stream:
             if mesures is not None and "premier_mot" not in mesures:
