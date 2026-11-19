@@ -27,7 +27,7 @@ if [ ! -d third_party/ditto ]; then
 fi
 
 echo "== Modèles (≈ 8 Go au 1er lancement : Ditto 2,2 Go, voix 1.7B 4,3 Go, Whisper 1,6 Go au démarrage)"
-.venv/bin/hf download digital-avatar/ditto-talkinghead --include "ditto_cfg/*" "ditto_pytorch/*" \
+.venv/bin/hf download digital-avatar/ditto-talkinghead --include "ditto_cfg/*" --include "ditto_pytorch/*" \
   --local-dir models/ditto >/dev/null
 .venv/bin/hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/qwen3-tts-1.7B >/dev/null
 
