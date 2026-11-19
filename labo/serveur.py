@@ -97,6 +97,21 @@ CONTROLE_S = 1.2           # audio mesuré avant de jouer la phrase
 CONTROLE_ESSAIS = 3        # essais au plus ; le dernier est joué quoi qu'il arrive
 CONTROLE_BORNES = (0.73, 1.34)  # plage acceptée, en multiples de la hauteur médiane de la référence
 REF_HAUTEUR = None         # mesurée au chargement
+VOIX_STATS = {"phrases": 0, "refaites": 0, "essais_ecartes": 0}  # depuis le démarrage (menu ☰ → Version)
+
+
+def _version():
+    """Empreinte du code réellement chargé (le dossier du pod n'est pas un dépôt Git à jour) + commit si connu."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in sorted((RACINE / "labo").glob("*.py")) + [RACINE / "labo" / "web" / "index.html"]:
+        h.update(f.read_bytes())
+    fichier = RACINE / "labo" / "version.txt"  # écrit au déploiement (commit Git), absent sinon
+    commit = fichier.read_text(encoding="utf-8").strip() if fichier.exists() else "inconnu"
+    return {"code": h.hexdigest()[:7], "commit": commit, "demarre": time.strftime("%d/%m %H:%M:%S")}
+
+
+VERSION = _version()
 
 
 def hauteur_mediane(a, sr=24000):
@@ -125,6 +140,7 @@ def parler(texte, graine=VOIX_GRAINE):
 def parler_controle(texte):
     """Comme parler(), en morceaux float32 à 24 kHz, mais la 1re seconde est vérifiée avant d'être rendue :
     hauteur hors de la plage de la référence → tirage abandonné et refait (autre graine)."""
+    VOIX_STATS["phrases"] += 1
     for essai in range(CONTROLE_ESSAIS):
         flux = parler(texte, VOIX_GRAINE + essai)
         tete, duree = [], 0.0
@@ -141,6 +157,7 @@ def parler_controle(texte):
             CONTROLE_BORNES[0] * REF_HAUTEUR <= h <= CONTROLE_BORNES[1] * REF_HAUTEUR)
         if bon or essai == CONTROLE_ESSAIS - 1:
             if essai:
+                VOIX_STATS["refaites"] += 1
                 log(f"Voix : essai {essai + 1} retenu ({h:.0f} Hz, référence {REF_HAUTEUR:.0f} Hz) « {texte[:40]} »")
             yield from tete
             for morceau, sr, _ in flux:
@@ -148,6 +165,7 @@ def parler_controle(texte):
                 yield morceau if sr == 24000 else resample_poly(morceau, 24000, sr).astype(np.float32)
             return
         flux.close()
+        VOIX_STATS["essais_ecartes"] += 1
         log(f"Voix : essai {essai + 1} écarté ({h:.0f} Hz, hors de {CONTROLE_BORNES[0] * REF_HAUTEUR:.0f}–"
             f"{CONTROLE_BORNES[1] * REF_HAUTEUR:.0f} Hz) « {texte[:40]} »")
 TAILLE_VOIX = os.environ.get("AQUAPHONE_VOIX", "1.7B")  # 1.7B ou 0.6B
@@ -780,6 +798,14 @@ async def effacer_piscine(request):
     return web.json_response(piscines.etat())
 
 
+async def version(request):
+    """Ce qui tourne vraiment (menu ☰ → Version) : code, personnage, voix de référence, contrôle de la voix."""
+    return web.json_response({**VERSION, "personnage": PERSONA, "voix_reference": Path(REF_AUDIO).name,
+                              "hauteur_reference": round(REF_HAUTEUR or 0),
+                              "plage": [round(b * (REF_HAUTEUR or 0)) for b in CONTROLE_BORNES],
+                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX, **VOIX_STATS})
+
+
 async def page(request):
     return web.FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})
 
@@ -962,7 +988,7 @@ def main():
                     web.post("/note", note), web.get("/connexion", connexion), web.post("/connexion", connexion),
                     web.get("/personas", liste_personas), web.get("/personas/{nom}/photo", photo_persona),
                     web.post("/personas/{nom}", deposer_persona), web.post("/persona", choisir_persona),
-                    web.get("/piscine", etat_piscine), web.post("/piscine/choix", choisir_piscine),
+                    web.get("/version", version), web.get("/piscine", etat_piscine), web.post("/piscine/choix", choisir_piscine),
                     web.post("/piscine/dictee", dicter_piscine), web.post("/piscine/effacer", effacer_piscine)])
     FICHIER_JETON.parent.mkdir(exist_ok=True)
     FICHIER_JETON.write_text(JETON, encoding="utf-8")

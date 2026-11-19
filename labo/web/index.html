@@ -98,6 +98,8 @@
 </div>
 <div id="menu"><div class="panneau">
   <div class="entete"><b>Aquaphone</b><button class="fermer" id="menu-fermer">Fermer ✕</button></div>
+  <h2>Version en service</h2>
+  <div id="version" class="note" style="background:var(--carte);border-radius:12px;padding:10px;line-height:1.5">…</div>
   <h2>Personnage</h2>
   <p class="note">Changer de personnage redémarre l'assistant (≈ 2 min).</p>
   <div id="personas"></div>
@@ -320,7 +322,18 @@ function message(m) {
 
 // ─── Menu ☰ : personnages, dépôt photo + voix, affichage ───────────────────────────
 const menu = document.getElementById('menu'), depot = document.getElementById('depot');
-document.getElementById('menu-bouton').onclick = () => { menu.classList.add('ouvert'); chargerPersonas(); chargerPiscine(); };
+document.getElementById('menu-bouton').onclick = () => { menu.classList.add('ouvert'); chargerVersion(); chargerPersonas(); chargerPiscine(); };
+const VERSION_PAGE = 'page v3';  // change à chaque modification de cette page (vérifie que le navigateur n'a pas l'ancienne)
+async function chargerVersion() {
+  const el = document.getElementById('version');
+  try {
+    const v = await (await fetch('/version', { cache: 'no-store' })).json();
+    el.innerHTML = `<b>Code ${v.code}</b> · commit ${v.commit} · ${VERSION_PAGE}<br>Démarré le ${v.demarre}<br>`
+      + `Personnage : <b>${v.personnage}</b> · voix de référence ${v.voix_reference} (${v.hauteur_reference} Hz)<br>`
+      + `Contrôle voix : plage ${v.plage[0]}–${v.plage[1]} Hz · température ${v.temperature} · modèle ${v.modele_voix}<br>`
+      + `Depuis le démarrage : ${v.phrases} phrases, ${v.refaites} refaites, ${v.essais_ecartes} essais écartés`;
+  } catch (e) { el.textContent = 'Version indisponible : ' + e.message; }
+}
 document.getElementById('menu-fermer').onclick = () => menu.classList.remove('ouvert');
 menu.onclick = (e) => { if (e.target === menu) menu.classList.remove('ouvert'); };
 document.getElementById('voir-mesures').onchange = (e) => tableau.classList.toggle('cache', !e.target.checked);
