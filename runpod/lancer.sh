@@ -6,8 +6,9 @@ set -euo pipefail
 cd /workspace/iopool-aquaphone
 grep -q '^AQUAPHONE_MOT_DE_PASSE=.' .env || { echo "Manque AQUAPHONE_MOT_DE_PASSE dans .env"; exit 1; }
 mkdir -p labo/journaux
-export AQUAPHONE_GPU_VOIX=${AQUAPHONE_GPU_VOIX:-1} AQUAPHONE_HOTE=0.0.0.0 PYTHONIOENCODING=utf-8        HF_HOME=/workspace/.cache/huggingface
+export AQUAPHONE_GPU_VOIX=${AQUAPHONE_GPU_VOIX:-1} AQUAPHONE_HOTE=0.0.0.0 PYTHONIOENCODING=utf-8 HF_HOME=/workspace/.cache/huggingface
 pkill -f labo/serveur.py || true
 nohup .venv/bin/python -u labo/serveur.py > labo/journaux/serveur.log 2>&1 &
 echo "Serveur lancé (journal : labo/journaux/serveur.log, prêt en ≈ 1 à 2 min)."
-echo "Adresse : https://${RUNPOD_POD_ID:-<id-du-pod>}-8765.proxy.runpod.net/"
+POD=${RUNPOD_POD_ID:-$(tr '\0' '\n' < /proc/1/environ | sed -n 's/^RUNPOD_POD_ID=//p')}
+echo "Adresse : https://${POD:-<id-du-pod>}-8765.proxy.runpod.net/"

@@ -8,7 +8,7 @@ D=$W/iopool-aquaphone
 export HF_HOME=$W/.cache/huggingface PIP_CACHE_DIR=$W/.cache/pip
 
 echo "== Paquets système"
-apt-get update -qq && apt-get install -y -qq ffmpeg git curl python3-venv >/dev/null
+apt-get update -qq && apt-get install -y -qq ffmpeg git curl python3-venv libegl1 libgl1 libgles2 sox >/dev/null
 
 echo "== Code"
 [ -d "$D/.git" ] || git clone https://github.com/PLHFak/IOPOOL-aquaphone.git "$D"

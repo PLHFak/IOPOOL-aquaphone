@@ -1,0 +1,9 @@
+{
+  "nom": "pisciniste-fictif",
+  "prenom": "Marc",
+  "fictif": true,
+  "magasin": "magasin de piscines (démonstration)",
+  "description_visage": "a 45 year old French man, pool installer and shop owner, short salt and pepper hair, light stubble, tanned skin, wearing a plain navy blue crew-neck t-shirt, standing in front of an indoor demonstration swimming pool with clear turquoise water inside a bright pool equipment store",
+  "description_voix": "Homme français d'environ 45 ans, voix chaleureuse et posée, légèrement grave, ton rassurant de professionnel qui conseille un client, débit naturel, accent neutre de France.",
+  "texte_reference": "Bonjour, je suis l'assistant de votre pisciniste. Dites-moi ce qui se passe avec votre piscine, et on va regarder ça ensemble."
+}

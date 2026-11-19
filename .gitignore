@@ -11,3 +11,8 @@ labo/journaux/
 
 # Base documentaire iopool (interne, jamais commitée : dépôt public)
 connaissances/
+
+# Personnages : photos et voix hors dépôt (seules les fiches .json sont commitées)
+personas/*/*.jpg
+personas/*/*.png
+personas/*/candidats/

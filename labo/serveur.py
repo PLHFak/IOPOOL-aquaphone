@@ -71,7 +71,9 @@ GARDE_ECHO = 0.6  # s de micro ignoré après la fin de lecture signalée par la
 ATTENTE_SUITE = 1.2  # phrase transcrite inachevée (« je voudrais savoir... ») : délai pour la reprise (s)
 PROMPT_STT = "Aquaphone. Un client parle à l'assistant de son pisciniste : piscine, chlore choc, pH, iopool."
 
-# Voix
+# Personnage (visage + voix) : AQUAPHONE_PERSONA=pierre (défaut) ou un dossier personas/<nom>/
+# contenant fiche.json (texte_reference), visage.jpg et voix.wav (jamais commités).
+PERSONA = os.environ.get("AQUAPHONE_PERSONA", "pierre")
 REF_AUDIO = str(RACINE / "models" / "ref_pierre.wav")
 REF_TEXTE = (
     "Bonjour, je m'appelle Pierre L'Hoest, je suis votre pisciniste, ici c'est mon clone "
@@ -98,6 +100,16 @@ LARGEUR_VIDEO = int(os.environ.get("AQUAPHONE_LARGEUR", "480"))  # largeur de la
 QUALITE_JPEG = 80
 HAUTEUR_SOURCE = int(os.environ.get("AQUAPHONE_HAUTEUR", "720"))  # photo sur laquelle le visage est recollé
 SOURCE = RACINE / "models" / f"visage_pierre_{HAUTEUR_SOURCE}.jpg"
+if PERSONA != "pierre":
+    _dossier = RACINE / "personas" / PERSONA
+    _fiche = json.loads((_dossier / "fiche.json").read_text(encoding="utf-8"))
+    REF_AUDIO, REF_TEXTE = str(_dossier / "voix.wav"), _fiche["texte_reference"]
+    SOURCE = _dossier / f"visage_{HAUTEUR_SOURCE}.jpg"
+    if not SOURCE.exists():  # photo réduite à la hauteur de travail (comme visage_pierre_720.jpg)
+        _img = cv2.imread(str(_dossier / "visage.jpg"))
+        _l = round(_img.shape[1] * HAUTEUR_SOURCE / _img.shape[0] / 2) * 2
+        cv2.imwrite(str(SOURCE), cv2.resize(_img, (_l, HAUTEUR_SOURCE), interpolation=cv2.INTER_AREA),
+                    [cv2.IMWRITE_JPEG_QUALITY, 95])
 PAS_DIFFUSION = int(os.environ.get("AQUAPHONE_PAS", "5"))  # étapes du modèle de mouvement (Ditto)
 
 
@@ -741,7 +753,7 @@ def charger():
     t = time.perf_counter()
     global CLIPS
     CLIPS = attente.charger(rendre_clip, ("silences coupés", TAILLE_VOIX, PAS_DIFFUSION, HAUTEUR_SOURCE, LARGEUR_VIDEO, QUALITE_JPEG,
-                                          os.path.getsize(REF_AUDIO), REF_TEXTE))
+                                          os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA))
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
