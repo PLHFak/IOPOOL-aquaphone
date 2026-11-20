@@ -133,6 +133,10 @@
     <button type="button" id="effacer-piscine" class="fermer" style="background:var(--carte);color:var(--texte)">Effacer la piscine dictée</button>
     <p class="note" id="etat-piscine"></p>
   </div>
+  <h2>Réglages de la voix</h2>
+  <label for="vitesse">Vitesse du phrasé : <b id="vitesse-valeur">×1,15</b></label>
+  <input type="range" id="vitesse" min="0.8" max="1.5" step="0.05" value="1.15" style="width:100%;margin-top:8px">
+  <p class="note" id="vitesse-etat">S'applique dès la phrase suivante. Les phrases d'attente gardent leur vitesse jusqu'au prochain redémarrage.</p>
   <h2>Affichage</h2>
   <label class="accord"><input type="checkbox" id="voir-mesures"> Afficher les mesures de délai</label>
 </div></div>
@@ -323,17 +327,32 @@ function message(m) {
 // ─── Menu ☰ : personnages, dépôt photo + voix, affichage ───────────────────────────
 const menu = document.getElementById('menu'), depot = document.getElementById('depot');
 document.getElementById('menu-bouton').onclick = () => { menu.classList.add('ouvert'); chargerVersion(); chargerPersonas(); chargerPiscine(); };
-const VERSION_PAGE = 'page v4';  // change à chaque modification de cette page (vérifie que le navigateur n'a pas l'ancienne)
+const VERSION_PAGE = 'page v6';  // change à chaque modification de cette page (vérifie que le navigateur n'a pas l'ancienne)
 async function chargerVersion() {
   const el = document.getElementById('version');
   try {
     const v = await (await fetch('/version', { cache: 'no-store' })).json();
     el.innerHTML = `<b>Code ${v.code}</b> · commit ${v.commit} · ${VERSION_PAGE}<br>Démarré le ${v.demarre}<br>`
       + `Personnage : <b>${v.personnage}</b> · voix de référence ${v.voix_reference} (${v.hauteur_reference} Hz)<br>`
-      + `Voix : mode ${v.mode_voix} · contrôle plage ${v.plage[0]}–${v.plage[1]} Hz · température ${v.temperature} · modèle ${v.modele_voix}<br>`
+      + `Voix : mode ${v.mode_voix} · vitesse ×${v.vitesse} · contrôle plage ${v.plage[0]}–${v.plage[1]} Hz · température ${v.temperature} · modèle ${v.modele_voix}<br>`
       + `Depuis le démarrage : ${v.phrases} phrases, ${v.refaites} refaites, ${v.essais_ecartes} essais écartés`;
+    if (v.vitesse) afficherVitesse(v.vitesse);
   } catch (e) { el.textContent = 'Version indisponible : ' + e.message; }
 }
+const curseurVitesse = document.getElementById('vitesse');
+function afficherVitesse(x) {
+  curseurVitesse.value = x;
+  document.getElementById('vitesse-valeur').textContent = '×' + Number(x).toFixed(2).replace('.', ',');
+}
+curseurVitesse.oninput = () => afficherVitesse(curseurVitesse.value);
+curseurVitesse.onchange = async () => {
+  const etat = document.getElementById('vitesse-etat');
+  const r = await fetch('/voix/vitesse', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ vitesse: Number(curseurVitesse.value) }) });
+  const d = await r.json();
+  etat.textContent = r.ok ? `Vitesse ×${String(d.vitesse).replace('.', ',')} enregistrée : dès la phrase suivante (phrases d'attente : ×${String(d.vitesse_attente).replace('.', ',')} jusqu'au redémarrage).`
+                          : 'Erreur : ' + d.erreur;
+};
 document.getElementById('menu-fermer').onclick = () => menu.classList.remove('ouvert');
 menu.onclick = (e) => { if (e.target === menu) menu.classList.remove('ouvert'); };
 document.getElementById('voir-mesures').onchange = (e) => tableau.classList.toggle('cache', !e.target.checked);

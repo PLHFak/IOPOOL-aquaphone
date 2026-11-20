@@ -53,6 +53,7 @@ import piscines  # noqa: E402
 import attente  # noqa: E402
 import contexte  # noqa: E402
 import mode_labo  # noqa: E402
+import vitesse  # noqa: E402
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -96,6 +97,13 @@ VOIX_GRAINE = 1234
 #     emporte le timbre : questions à 200 Hz et plus).
 VOIX_MODE = os.environ.get("AQUAPHONE_VOIX_MODE", "empreinte")
 VOIX_XVEC = VOIX_MODE == "empreinte"
+VOIX_VITESSE = float(os.environ.get("AQUAPHONE_VOIX_VITESSE", "1.15"))  # débit (×1,15 choisi par Pierre le 20/11)
+FICHIER_VITESSE = RACINE / "labo" / "journaux" / "vitesse_voix.txt"  # réglage du menu ☰, gardé au redémarrage
+try:
+    VOIX_VITESSE = float(FICHIER_VITESSE.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    pass
+VITESSE_CLIPS = VOIX_VITESSE  # vitesse des phrases d'attente (calculées au démarrage)
 # Contrôle de la voix (labo2/test_controle_voix.py) : chaque phrase est un tirage au hasard et ≈ 1 sur 8
 # part loin de la référence (timbre plus aigu, « voix de femme »). La 1re seconde suffit à le voir
 # (10 ratés sur 10 détectés, 3 fausses alertes sur 80) : on la garde en réserve, on mesure la hauteur, et
@@ -162,6 +170,11 @@ def empreinte_voix(a):
 
 
 def parler_controle(texte):
+    """Voix contrôlée puis accélérée (VOIX_VITESSE, sans changer la hauteur, en flux : labo/vitesse.py)."""
+    yield from vitesse.accelerer(_parler_controle(texte), VOIX_VITESSE)
+
+
+def _parler_controle(texte):
     """Voix contrôlée. Phrases courtes avec seuil d'empreinte fixé : v2 (empreinte) ; sinon v1 (hauteur, en flux)."""
     if E_REF is not None and len(texte) <= CONTROLE_V2_MAX_CAR:
         yield from parler_controle_v2(texte)
@@ -877,10 +890,27 @@ async def version(request):
     return web.json_response({**VERSION, "personnage": PERSONA, "voix_reference": Path(REF_AUDIO).name,
                               "hauteur_reference": round(REF_HAUTEUR or 0),
                               "plage": [round(b * (REF_HAUTEUR or 0)) for b in CONTROLE_BORNES],
-                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX, "mode_voix": VOIX_MODE,
+                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX, "mode_voix": VOIX_MODE, "vitesse": VOIX_VITESSE, "vitesse_attente": VITESSE_CLIPS,
                               "controle": "empreinte" if E_REF is not None else "hauteur",
                               "seuil_empreinte": SEUIL_EMPREINTE, "predictor": PREDICTOR or "0.9,50 (bibliothèque)",
                               **VOIX_STATS})
+
+
+async def regler_vitesse(request):
+    """Menu ☰ → Réglages : débit de la voix, appliqué dès la phrase suivante (pas de redémarrage).
+    Les phrases d'attente gardent la vitesse du démarrage jusqu'au prochain redémarrage."""
+    global VOIX_VITESSE
+    try:
+        v = round(float((await request.json())["vitesse"]), 2)
+    except (ValueError, KeyError, TypeError):
+        return web.json_response({"erreur": "vitesse invalide"}, status=400)
+    if not 0.8 <= v <= 1.5:
+        return web.json_response({"erreur": "vitesse entre 0,8 et 1,5"}, status=400)
+    VOIX_VITESSE = v
+    FICHIER_VITESSE.parent.mkdir(exist_ok=True)
+    FICHIER_VITESSE.write_text(str(v), encoding="utf-8")
+    log(f"Vitesse de la voix réglée à ×{v} (menu)")
+    return web.json_response({"vitesse": v, "vitesse_attente": VITESSE_CLIPS})
 
 
 async def page(request):
@@ -1052,7 +1082,8 @@ def charger():
                                           # v2 : autres tirages → clips à refaire (les anciens .pkl restent sur le disque)
                                           f"contrôle voix 2 {SEUIL_EMPREINTE} {PREDICTOR}" if E_REF is not None
                                           else "contrôle voix 1" + (f" {PREDICTOR}" if PREDICTOR else ""))
-                                         + (("empreinte seule",) if VOIX_XVEC else ()))  # nouveaux clips en mode B
+                                         + (("empreinte seule",) if VOIX_XVEC else ())  # nouveaux clips en mode B
+                                         + ((f"vitesse {VITESSE_CLIPS}",) if VITESSE_CLIPS != 1.0 else ()))
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
@@ -1087,7 +1118,7 @@ def main():
                     web.post("/note", note), web.get("/connexion", connexion), web.post("/connexion", connexion),
                     web.get("/personas", liste_personas), web.get("/personas/{nom}/photo", photo_persona),
                     web.post("/personas/{nom}", deposer_persona), web.post("/persona", choisir_persona),
-                    web.get("/version", version), web.get("/piscine", etat_piscine), web.post("/piscine/choix", choisir_piscine),
+                    web.get("/version", version), web.post("/voix/vitesse", regler_vitesse),web.get("/piscine", etat_piscine), web.post("/piscine/choix", choisir_piscine),
                     web.post("/piscine/dictee", dicter_piscine), web.post("/piscine/effacer", effacer_piscine)])
     FICHIER_JETON.parent.mkdir(exist_ok=True)
     FICHIER_JETON.write_text(JETON, encoding="utf-8")
