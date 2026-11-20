@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Aquaphone</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;
+       align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box}
+  main{background:#1e293b;padding:28px;border-radius:14px;width:min(360px,100%);text-align:center}
+  h1{font-size:22px;margin:0 0 8px}
+  input,button{width:100%;box-sizing:border-box;font-size:17px;padding:13px;border-radius:10px;border:0;margin-top:12px}
+  button{background:#0ea5e9;color:#fff;font-weight:600}button:disabled{opacity:.4}
+  p{color:#94a3b8;line-height:1.45}.erreur{color:#fca5a5}.cache{display:none}
+  .barre{height:6px;background:#334155;border-radius:3px;overflow:hidden;margin-top:14px}
+  .barre i{display:block;height:100%;width:0;background:#0ea5e9;transition:width 1s linear}
+</style></head>
+<body><main>
+  <h1>Aquaphone</h1>
+  <p>Assistant vocal du pisciniste (labo). Vous parlez à une intelligence artificielle.</p>
+  <form id="connexion" class="cache">
+    <input type="password" id="mdp" placeholder="Mot de passe" autocomplete="current-password">
+    <button type="submit">Entrer</button>
+    <p id="err" class="erreur"></p>
+  </form>
+  <div id="pilote" class="cache">
+    <p id="etat">Vérification…</p>
+    <div class="barre cache" id="barre"><i id="avance"></i></div>
+    <button id="go" disabled>Démarrer l'assistant</button>
+    <p style="font-size:13px">Le démarrage prend environ 4 minutes. L'assistant se met en veille après 5 minutes sans question.</p>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let debut = null;
+async function suivre() {
+  let d;
+  try { const r = await fetch('/api/etat', { cache: 'no-store' }); d = await r.json(); } catch (e) { d = { phase: 'erreur', message: 'réseau' }; }
+  if (d.phase === 'connexion') { $('connexion').classList.remove('cache'); $('pilote').classList.add('cache'); return; }
+  $('connexion').classList.add('cache'); $('pilote').classList.remove('cache');
+  $('go').disabled = !(d.phase === 'arrete' || d.phase === 'erreur');
+  $('barre').classList.toggle('cache', d.phase !== 'demarrage');
+  if (d.phase === 'arrete') $('etat').textContent = "L'assistant est en veille.";
+  if (d.phase === 'erreur') $('etat').textContent = 'Erreur : ' + (d.message || '');
+  if (d.phase === 'demarrage') {
+    const s = d.depuis_s || 0;
+    $('etat').textContent = `Démarrage en cours${d.cartes ? ' (' + d.cartes + ')' : ''}… ${Math.floor(s / 60)} min ${s % 60} s`;
+    $('avance').style.width = Math.min(95, s / 240 * 100) + '%';
+  }
+  if (d.phase === 'pret') { $('etat').textContent = 'Prêt ! Ouverture…'; location.href = d.adresse; return; }
+  setTimeout(suivre, 4000);
+}
+$('connexion').onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await fetch('/api/connexion', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                           body: JSON.stringify({ mot_de_passe: $('mdp').value }) });
+  if (r.ok) { $('err').textContent = ''; suivre(); } else $('err').textContent = 'Mot de passe incorrect.';
+};
+$('go').onclick = async () => {
+  $('go').disabled = true; $('etat').textContent = "Recherche d'une carte graphique libre…";
+  const r = await fetch('/api/demarrer', { method: 'POST' }); const d = await r.json();
+  if (!r.ok) $('etat').textContent = 'Erreur : ' + (d.message || '');
+  setTimeout(suivre, 3000);
+};
+suivre();
+</script></body></html>
