@@ -621,6 +621,7 @@ class Session:
             self.loop.call_soon_threadsafe(self.ne_plus_retenir)
             m["question"] = texte
             log(f"Réponse {rid} — question : « {texte} »")
+            noter_activite()
             if not texte:
                 self.envoyer({"type": "etat", "etat": "ecoute"})
                 self.reprendre()
@@ -921,6 +922,17 @@ async def photo(request):
     return web.FileResponse(SOURCE)
 
 
+FICHIER_ACTIVITE = RACINE / "labo" / "journaux" / "activite.json"
+
+
+def noter_activite():
+    """Dernière utilisation (connexion, question) : lue par runpod/a_la_demande.py pour arrêter un pod inutilisé."""
+    try:
+        FICHIER_ACTIVITE.write_text(json.dumps({"derniere": time.time(), "connectes": len(SESSIONS)}), encoding="utf-8")
+    except OSError:
+        pass
+
+
 async def websocket(request):
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=0)
     await ws.prepare(request)
@@ -930,6 +942,7 @@ async def websocket(request):
     tache = asyncio.create_task(s.expediteur())
     log("Navigateur connecté :", request.headers.get("Tailscale-User-Login") or request.remote)
     SESSIONS.add(s)
+    noter_activite()
     for n in NOTES:
         s.envoyer(n)
     s.envoyer({"type": "etat", "etat": "ecoute"})
@@ -958,6 +971,7 @@ async def websocket(request):
     await tache
     if VISAGE.sortie is s:
         VISAGE.sortie = None
+    noter_activite()
     log("Navigateur déconnecté")
     return ws
 
