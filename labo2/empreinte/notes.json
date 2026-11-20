@@ -1,0 +1,1093 @@
+{
+ "bilan": {
+  "reference_hz": 123,
+  "tf32": true,
+  "predictor": "0.9,50 (bibliothèque)",
+  "essais_total": 100,
+  "tirages_hauteur_ok": 75,
+  "sim_mediane": 0.931,
+  "sim_min_max": [
+   0.872,
+   0.982
+  ],
+  "correlation_sim_debut_vs_sim": 0.949,
+  "seuil_propose_proxy": 0.886,
+  "simulation_par_seuil": {
+   "0.0": {
+    "essais_moyens_par_phrase": 1.0,
+    "phrases_sans_essai_au_seuil": 0,
+    "t_total_dernier_essai_s_moyen": 1.26
+   },
+   "0.886": {
+    "essais_moyens_par_phrase": 1.0,
+    "phrases_sans_essai_au_seuil": 0,
+    "t_total_dernier_essai_s_moyen": 1.26
+   },
+   "0.916": {
+    "essais_moyens_par_phrase": 1.45,
+    "phrases_sans_essai_au_seuil": 0,
+    "t_total_dernier_essai_s_moyen": 1.26
+   },
+   "0.924": {
+    "essais_moyens_par_phrase": 2.05,
+    "phrases_sans_essai_au_seuil": 0,
+    "t_total_dernier_essai_s_moyen": 1.22
+   },
+   "0.931": {
+    "essais_moyens_par_phrase": 2.25,
+    "phrases_sans_essai_au_seuil": 2,
+    "t_total_dernier_essai_s_moyen": 1.23
+   },
+   "0.935": {
+    "essais_moyens_par_phrase": 2.4,
+    "phrases_sans_essai_au_seuil": 2,
+    "t_total_dernier_essai_s_moyen": 1.24
+   }
+  },
+  "sous_le_seuil_mais_hauteur_ok": 0,
+  "sous_le_seuil_total": 1,
+  "seuil_debut_propose_proxy": 0.884
+ },
+ "phrases": [
+  {
+   "n": 1,
+   "phrase": "Bonjour, je suis l'assistant de Marc, que se passe-t-il avec votre piscine ?",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.923,
+     "sim_debut": 0.927,
+     "hauteur": 178,
+     "duree": 3.8,
+     "t_premier_s": 1.19,
+     "t_total_s": 2.63
+    },
+    {
+     "essai": 2,
+     "sim": 0.902,
+     "sim_debut": 0.915,
+     "hauteur": 122,
+     "duree": 4.0,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.7
+    },
+    {
+     "essai": 3,
+     "sim": 0.976,
+     "sim_debut": 0.968,
+     "hauteur": 137,
+     "duree": 4.1,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.73
+    },
+    {
+     "essai": 4,
+     "sim": 0.935,
+     "sim_debut": 0.939,
+     "hauteur": 150,
+     "duree": 4.4,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.78
+    },
+    {
+     "essai": 5,
+     "sim": 0.931,
+     "sim_debut": 0.934,
+     "hauteur": 141,
+     "duree": 4.0,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.66
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 2,
+   "phrase": "D'accord, une eau verte depuis deux jours malgré le chlore choc, c'est fréquent.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.918,
+     "sim_debut": 0.921,
+     "hauteur": 125,
+     "duree": 4.9,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.97
+    },
+    {
+     "essai": 2,
+     "sim": 0.911,
+     "sim_debut": 0.915,
+     "hauteur": 126,
+     "duree": 5.2,
+     "t_premier_s": 0.2,
+     "t_total_s": 2.01
+    },
+    {
+     "essai": 3,
+     "sim": 0.939,
+     "sim_debut": 0.94,
+     "hauteur": 143,
+     "duree": 4.3,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.79
+    },
+    {
+     "essai": 4,
+     "sim": 0.938,
+     "sim_debut": 0.942,
+     "hauteur": 164,
+     "duree": 3.6,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.51
+    },
+    {
+     "essai": 5,
+     "sim": 0.941,
+     "sim_debut": 0.939,
+     "hauteur": 115,
+     "duree": 4.5,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.78
+    }
+   ],
+   "choisi": 5
+  },
+  {
+   "n": 3,
+   "phrase": "Le plus souvent, c'est le pH qui est trop haut et le chlore ne fait plus effet.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.974,
+     "sim_debut": 0.968,
+     "hauteur": 129,
+     "duree": 4.4,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.77
+    },
+    {
+     "essai": 2,
+     "sim": 0.947,
+     "sim_debut": 0.948,
+     "hauteur": 141,
+     "duree": 3.9,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.62
+    },
+    {
+     "essai": 3,
+     "sim": 0.949,
+     "sim_debut": 0.95,
+     "hauteur": 128,
+     "duree": 4.3,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.73
+    },
+    {
+     "essai": 4,
+     "sim": 0.947,
+     "sim_debut": 0.949,
+     "hauteur": 136,
+     "duree": 4.1,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.67
+    },
+    {
+     "essai": 5,
+     "sim": 0.923,
+     "sim_debut": 0.925,
+     "hauteur": 136,
+     "duree": 3.8,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.58
+    }
+   ],
+   "choisi": 1
+  },
+  {
+   "n": 4,
+   "phrase": "Votre sonde iopool affiche quelle valeur de pH en ce moment ?",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.909,
+     "sim_debut": 0.911,
+     "hauteur": 159,
+     "duree": 3.7,
+     "t_premier_s": 0.21,
+     "t_total_s": 1.5
+    },
+    {
+     "essai": 2,
+     "sim": 0.922,
+     "sim_debut": 0.92,
+     "hauteur": 103,
+     "duree": 3.1,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.37
+    },
+    {
+     "essai": 3,
+     "sim": 0.94,
+     "sim_debut": 0.942,
+     "hauteur": 151,
+     "duree": 3.5,
+     "t_premier_s": 0.19,
+     "t_total_s": 1.47
+    },
+    {
+     "essai": 4,
+     "sim": 0.906,
+     "sim_debut": 0.903,
+     "hauteur": 113,
+     "duree": 3.4,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.45
+    },
+    {
+     "essai": 5,
+     "sim": 0.928,
+     "sim_debut": 0.932,
+     "hauteur": 153,
+     "duree": 3.4,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.45
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 5,
+   "phrase": "Très bien.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.895,
+     "sim_debut": 0.895,
+     "hauteur": 146,
+     "duree": 0.5,
+     "t_premier_s": 0.22,
+     "t_total_s": 0.33
+    },
+    {
+     "essai": 2,
+     "sim": 0.896,
+     "sim_debut": 0.896,
+     "hauteur": 149,
+     "duree": 0.6,
+     "t_premier_s": 0.21,
+     "t_total_s": 0.34
+    },
+    {
+     "essai": 3,
+     "sim": 0.916,
+     "sim_debut": 0.916,
+     "hauteur": 95,
+     "duree": 0.5,
+     "t_premier_s": 0.23,
+     "t_total_s": 0.33
+    },
+    {
+     "essai": 4,
+     "sim": 0.94,
+     "sim_debut": 0.94,
+     "hauteur": 142,
+     "duree": 0.4,
+     "t_premier_s": 0.21,
+     "t_total_s": 0.3
+    },
+    {
+     "essai": 5,
+     "sim": 0.893,
+     "sim_debut": 0.893,
+     "hauteur": 89,
+     "duree": 0.4,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.32
+    }
+   ],
+   "choisi": 4
+  },
+  {
+   "n": 6,
+   "phrase": "Alors on va commencer par faire baisser le pH.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.934,
+     "sim_debut": 0.932,
+     "hauteur": 119,
+     "duree": 2.0,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.02
+    },
+    {
+     "essai": 2,
+     "sim": 0.954,
+     "sim_debut": 0.948,
+     "hauteur": 133,
+     "duree": 2.4,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.17
+    },
+    {
+     "essai": 3,
+     "sim": 0.905,
+     "sim_debut": 0.9,
+     "hauteur": 168,
+     "duree": 2.6,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.23
+    },
+    {
+     "essai": 4,
+     "sim": 0.929,
+     "sim_debut": 0.924,
+     "hauteur": 112,
+     "duree": 2.6,
+     "t_premier_s": 0.2,
+     "t_total_s": 1.16
+    },
+    {
+     "essai": 5,
+     "sim": 0.935,
+     "sim_debut": 0.933,
+     "hauteur": 123,
+     "duree": 2.4,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.14
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 7,
+   "phrase": "L'application iopool vous indique la bonne dose selon le volume de votre bassin.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.971,
+     "sim_debut": 0.967,
+     "hauteur": 123,
+     "duree": 5.2,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.96
+    },
+    {
+     "essai": 2,
+     "sim": 0.982,
+     "sim_debut": 0.968,
+     "hauteur": 125,
+     "duree": 5.6,
+     "t_premier_s": 0.25,
+     "t_total_s": 2.11
+    },
+    {
+     "essai": 3,
+     "sim": 0.979,
+     "sim_debut": 0.974,
+     "hauteur": 123,
+     "duree": 4.6,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.83
+    },
+    {
+     "essai": 4,
+     "sim": 0.94,
+     "sim_debut": 0.945,
+     "hauteur": 124,
+     "duree": 4.2,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.68
+    },
+    {
+     "essai": 5,
+     "sim": 0.932,
+     "sim_debut": 0.938,
+     "hauteur": 117,
+     "duree": 4.0,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.63
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 8,
+   "phrase": "Laissez tourner la filtration en continu pendant vingt-quatre heures.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.911,
+     "sim_debut": 0.914,
+     "hauteur": 133,
+     "duree": 3.1,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.34
+    },
+    {
+     "essai": 2,
+     "sim": 0.943,
+     "sim_debut": 0.942,
+     "hauteur": 130,
+     "duree": 3.1,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.35
+    },
+    {
+     "essai": 3,
+     "sim": 0.977,
+     "sim_debut": 0.972,
+     "hauteur": 132,
+     "duree": 3.5,
+     "t_premier_s": 0.2,
+     "t_total_s": 1.44
+    },
+    {
+     "essai": 4,
+     "sim": 0.957,
+     "sim_debut": 0.95,
+     "hauteur": 113,
+     "duree": 3.6,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.51
+    },
+    {
+     "essai": 5,
+     "sim": 0.913,
+     "sim_debut": 0.913,
+     "hauteur": 178,
+     "duree": 3.8,
+     "t_premier_s": 0.2,
+     "t_total_s": 1.54
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 9,
+   "phrase": "Ensuite, brossez bien les parois et le fond.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.931,
+     "sim_debut": 0.928,
+     "hauteur": 119,
+     "duree": 2.6,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.22
+    },
+    {
+     "essai": 2,
+     "sim": 0.93,
+     "sim_debut": 0.931,
+     "hauteur": 127,
+     "duree": 2.9,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.28
+    },
+    {
+     "essai": 3,
+     "sim": 0.937,
+     "sim_debut": 0.934,
+     "hauteur": 128,
+     "duree": 2.8,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.25
+    },
+    {
+     "essai": 4,
+     "sim": 0.934,
+     "sim_debut": 0.934,
+     "hauteur": 118,
+     "duree": 2.1,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.06
+    },
+    {
+     "essai": 5,
+     "sim": 0.93,
+     "sim_debut": 0.932,
+     "hauteur": 163,
+     "duree": 2.6,
+     "t_premier_s": 0.21,
+     "t_total_s": 1.16
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 10,
+   "phrase": "Si l'eau reste trouble après deux jours, rappelez-nous.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.913,
+     "sim_debut": 0.916,
+     "hauteur": 130,
+     "duree": 2.9,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.29
+    },
+    {
+     "essai": 2,
+     "sim": 0.922,
+     "sim_debut": 0.92,
+     "hauteur": 157,
+     "duree": 3.2,
+     "t_premier_s": 0.21,
+     "t_total_s": 1.35
+    },
+    {
+     "essai": 3,
+     "sim": 0.92,
+     "sim_debut": 0.916,
+     "hauteur": 203,
+     "duree": 2.9,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.28
+    },
+    {
+     "essai": 4,
+     "sim": 0.925,
+     "sim_debut": 0.931,
+     "hauteur": 267,
+     "duree": 3.0,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.34
+    },
+    {
+     "essai": 5,
+     "sim": 0.911,
+     "sim_debut": 0.911,
+     "hauteur": 210,
+     "duree": 2.8,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.27
+    }
+   ],
+   "choisi": 4
+  },
+  {
+   "n": 11,
+   "phrase": "Je peux aussi demander à Marc de passer vous voir.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.946,
+     "sim_debut": 0.947,
+     "hauteur": 121,
+     "duree": 3.1,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.38
+    },
+    {
+     "essai": 2,
+     "sim": 0.972,
+     "sim_debut": 0.966,
+     "hauteur": 122,
+     "duree": 2.8,
+     "t_premier_s": 0.26,
+     "t_total_s": 1.29
+    },
+    {
+     "essai": 3,
+     "sim": 0.949,
+     "sim_debut": 0.948,
+     "hauteur": 123,
+     "duree": 2.8,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.27
+    },
+    {
+     "essai": 4,
+     "sim": 0.936,
+     "sim_debut": 0.932,
+     "hauteur": 147,
+     "duree": 2.6,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.19
+    },
+    {
+     "essai": 5,
+     "sim": 0.949,
+     "sim_debut": 0.944,
+     "hauteur": 139,
+     "duree": 3.7,
+     "t_premier_s": 0.21,
+     "t_total_s": 1.51
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 12,
+   "phrase": "Est-ce que vous avez un robot de nettoyage ?",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.916,
+     "sim_debut": 0.915,
+     "hauteur": 144,
+     "duree": 1.8,
+     "t_premier_s": 0.22,
+     "t_total_s": 0.91
+    },
+    {
+     "essai": 2,
+     "sim": 0.938,
+     "sim_debut": 0.933,
+     "hauteur": 120,
+     "duree": 1.8,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.95
+    },
+    {
+     "essai": 3,
+     "sim": 0.936,
+     "sim_debut": 0.935,
+     "hauteur": 132,
+     "duree": 1.8,
+     "t_premier_s": 0.22,
+     "t_total_s": 0.91
+    },
+    {
+     "essai": 4,
+     "sim": 0.872,
+     "sim_debut": 0.867,
+     "hauteur": 174,
+     "duree": 1.8,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.94
+    },
+    {
+     "essai": 5,
+     "sim": 0.899,
+     "sim_debut": 0.896,
+     "hauteur": 194,
+     "duree": 1.7,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.9
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 13,
+   "phrase": "Parfait, merci.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.911,
+     "sim_debut": 0.911,
+     "hauteur": 89,
+     "duree": 1.1,
+     "t_premier_s": 0.23,
+     "t_total_s": 0.62
+    },
+    {
+     "essai": 2,
+     "sim": 0.92,
+     "sim_debut": 0.92,
+     "hauteur": 148,
+     "duree": 1.0,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.62
+    },
+    {
+     "essai": 3,
+     "sim": 0.944,
+     "sim_debut": 0.944,
+     "hauteur": 134,
+     "duree": 1.3,
+     "t_premier_s": 0.22,
+     "t_total_s": 0.64
+    },
+    {
+     "essai": 4,
+     "sim": 0.926,
+     "sim_debut": 0.926,
+     "hauteur": 195,
+     "duree": 1.3,
+     "t_premier_s": 0.19,
+     "t_total_s": 0.62
+    },
+    {
+     "essai": 5,
+     "sim": 0.902,
+     "sim_debut": 0.902,
+     "hauteur": 253,
+     "duree": 0.6,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.37
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 14,
+   "phrase": "Je comprends, ce n'est pas agréable en plein été.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.946,
+     "sim_debut": 0.942,
+     "hauteur": 99,
+     "duree": 3.4,
+     "t_premier_s": 0.2,
+     "t_total_s": 1.43
+    },
+    {
+     "essai": 2,
+     "sim": 0.941,
+     "sim_debut": 0.944,
+     "hauteur": 104,
+     "duree": 2.8,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.28
+    },
+    {
+     "essai": 3,
+     "sim": 0.943,
+     "sim_debut": 0.944,
+     "hauteur": 117,
+     "duree": 2.9,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.3
+    },
+    {
+     "essai": 4,
+     "sim": 0.93,
+     "sim_debut": 0.922,
+     "hauteur": 106,
+     "duree": 2.3,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.14
+    },
+    {
+     "essai": 5,
+     "sim": 0.921,
+     "sim_debut": 0.92,
+     "hauteur": 126,
+     "duree": 2.9,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.3
+    }
+   ],
+   "choisi": 1
+  },
+  {
+   "n": 15,
+   "phrase": "Vérifiez aussi que le filtre n'est pas encrassé.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.936,
+     "sim_debut": 0.932,
+     "hauteur": 138,
+     "duree": 2.7,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.23
+    },
+    {
+     "essai": 2,
+     "sim": 0.918,
+     "sim_debut": 0.913,
+     "hauteur": 130,
+     "duree": 2.5,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.16
+    },
+    {
+     "essai": 3,
+     "sim": 0.947,
+     "sim_debut": 0.944,
+     "hauteur": 133,
+     "duree": 2.8,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.26
+    },
+    {
+     "essai": 4,
+     "sim": 0.903,
+     "sim_debut": 0.909,
+     "hauteur": 156,
+     "duree": 3.2,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.39
+    },
+    {
+     "essai": 5,
+     "sim": 0.947,
+     "sim_debut": 0.943,
+     "hauteur": 119,
+     "duree": 2.5,
+     "t_premier_s": 0.23,
+     "t_total_s": 1.17
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 16,
+   "phrase": "Un lavage du filtre à sable peut suffire.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.923,
+     "sim_debut": 0.921,
+     "hauteur": 123,
+     "duree": 2.2,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.11
+    },
+    {
+     "essai": 2,
+     "sim": 0.935,
+     "sim_debut": 0.932,
+     "hauteur": 131,
+     "duree": 2.8,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.26
+    },
+    {
+     "essai": 3,
+     "sim": 0.932,
+     "sim_debut": 0.924,
+     "hauteur": 173,
+     "duree": 2.2,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.11
+    },
+    {
+     "essai": 4,
+     "sim": 0.9,
+     "sim_debut": 0.887,
+     "hauteur": 114,
+     "duree": 2.3,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.14
+    },
+    {
+     "essai": 5,
+     "sim": 0.914,
+     "sim_debut": 0.911,
+     "hauteur": 115,
+     "duree": 2.2,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.12
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 17,
+   "phrase": "Vous avez bien fait de nous appeler.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.925,
+     "sim_debut": 0.925,
+     "hauteur": 127,
+     "duree": 1.4,
+     "t_premier_s": 0.23,
+     "t_total_s": 0.77
+    },
+    {
+     "essai": 2,
+     "sim": 0.917,
+     "sim_debut": 0.916,
+     "hauteur": 103,
+     "duree": 1.5,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.8
+    },
+    {
+     "essai": 3,
+     "sim": 0.937,
+     "sim_debut": 0.937,
+     "hauteur": 131,
+     "duree": 1.7,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.89
+    },
+    {
+     "essai": 4,
+     "sim": 0.891,
+     "sim_debut": 0.891,
+     "hauteur": 124,
+     "duree": 1.4,
+     "t_premier_s": 0.26,
+     "t_total_s": 0.79
+    },
+    {
+     "essai": 5,
+     "sim": 0.937,
+     "sim_debut": 0.936,
+     "hauteur": 101,
+     "duree": 1.6,
+     "t_premier_s": 0.2,
+     "t_total_s": 0.78
+    }
+   ],
+   "choisi": 3
+  },
+  {
+   "n": 18,
+   "phrase": "Je transmets tout ça à Marc, il vous rappelle dans la journée.",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.963,
+     "sim_debut": 0.959,
+     "hauteur": 129,
+     "duree": 3.0,
+     "t_premier_s": 0.25,
+     "t_total_s": 1.34
+    },
+    {
+     "essai": 2,
+     "sim": 0.972,
+     "sim_debut": 0.967,
+     "hauteur": 121,
+     "duree": 3.4,
+     "t_premier_s": 0.26,
+     "t_total_s": 1.47
+    },
+    {
+     "essai": 3,
+     "sim": 0.936,
+     "sim_debut": 0.937,
+     "hauteur": 136,
+     "duree": 3.7,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.51
+    },
+    {
+     "essai": 4,
+     "sim": 0.914,
+     "sim_debut": 0.915,
+     "hauteur": 120,
+     "duree": 3.1,
+     "t_premier_s": 0.24,
+     "t_total_s": 1.36
+    },
+    {
+     "essai": 5,
+     "sim": 0.939,
+     "sim_debut": 0.884,
+     "hauteur": 130,
+     "duree": 6.5,
+     "t_premier_s": 0.23,
+     "t_total_s": 2.36
+    }
+   ],
+   "choisi": 2
+  },
+  {
+   "n": 19,
+   "phrase": "Autre chose ?",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.913,
+     "sim_debut": 0.913,
+     "hauteur": 139,
+     "duree": 0.9,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.52
+    },
+    {
+     "essai": 2,
+     "sim": 0.905,
+     "sim_debut": 0.905,
+     "hauteur": 202,
+     "duree": 0.8,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.49
+    },
+    {
+     "essai": 3,
+     "sim": 0.915,
+     "sim_debut": 0.915,
+     "hauteur": 207,
+     "duree": 0.6,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.38
+    },
+    {
+     "essai": 4,
+     "sim": 0.924,
+     "sim_debut": 0.924,
+     "hauteur": 183,
+     "duree": 0.7,
+     "t_premier_s": 0.26,
+     "t_total_s": 0.48
+    },
+    {
+     "essai": 5,
+     "sim": 0.91,
+     "sim_debut": 0.91,
+     "hauteur": 158,
+     "duree": 1.0,
+     "t_premier_s": 0.25,
+     "t_total_s": 0.61
+    }
+   ],
+   "choisi": 4
+  },
+  {
+   "n": 20,
+   "phrase": "Bonne journée, et à bientôt !",
+   "essais": [
+    {
+     "essai": 1,
+     "sim": 0.919,
+     "sim_debut": 0.916,
+     "hauteur": 192,
+     "duree": 1.7,
+     "t_premier_s": 0.23,
+     "t_total_s": 0.89
+    },
+    {
+     "essai": 2,
+     "sim": 0.951,
+     "sim_debut": 0.948,
+     "hauteur": 152,
+     "duree": 1.9,
+     "t_premier_s": 0.24,
+     "t_total_s": 0.95
+    },
+    {
+     "essai": 3,
+     "sim": 0.931,
+     "sim_debut": 0.93,
+     "hauteur": 138,
+     "duree": 2.1,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.04
+    },
+    {
+     "essai": 4,
+     "sim": 0.93,
+     "sim_debut": 0.927,
+     "hauteur": 140,
+     "duree": 2.1,
+     "t_premier_s": 0.21,
+     "t_total_s": 1.03
+    },
+    {
+     "essai": 5,
+     "sim": 0.918,
+     "sim_debut": 0.914,
+     "hauteur": 183,
+     "duree": 2.0,
+     "t_premier_s": 0.22,
+     "t_total_s": 1.01
+    }
+   ],
+   "choisi": 2
+  }
+ ]
+}
