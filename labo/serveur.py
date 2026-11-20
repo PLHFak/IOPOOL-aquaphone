@@ -97,7 +97,18 @@ CONTROLE_S = 1.2           # audio mesuré avant de jouer la phrase
 CONTROLE_ESSAIS = 3        # essais au plus ; le dernier est joué quoi qu'il arrive
 CONTROLE_BORNES = (0.73, 1.34)  # plage acceptée, en multiples de la hauteur médiane de la référence
 REF_HAUTEUR = None         # mesurée au chargement
-VOIX_STATS = {"phrases": 0, "refaites": 0, "essais_ecartes": 0}  # depuis le démarrage (menu ☰ → Version)
+# Contrôle v2 par EMPREINTE du locuteur (brief labo2/BRIEF_CORRECTION_VOIX.md, mesures : labo2/essai_empreinte.py).
+# Inactif tant que le seuil n'est pas calé sur les mesures du pod : AQUAPHONE_SEUIL_EMPREINTE=0.xx ; sans seuil,
+# le contrôle v1 (hauteur) reste en place, comme avant. Voix de Pierre seulement (le seuil est calé sur sa référence).
+SEUIL_EMPREINTE = float(os.environ["AQUAPHONE_SEUIL_EMPREINTE"]) if os.environ.get("AQUAPHONE_SEUIL_EMPREINTE") else None
+CONTROLE_V2_ESSAIS = 5                 # le meilleur des 5 est joué si aucun n'atteint le seuil (on ne peut pas ne pas répondre)
+CONTROLE_V2_BORNES = (0.80, 1.25)      # hauteur : garde-fou secondaire, en multiples de la référence
+CONTROLE_V2_MAX_CAR = 120              # au-delà (≈ 8 s de parole), on reste en flux avec le contrôle v1 : pas d'attente de fin
+PREDICTOR = os.environ.get("AQUAPHONE_PREDICTOR", "")  # « T,K » : hasard réduit du code predictor (ex. « 0.5,25 »), vide = bibliothèque
+E_REF = None                           # empreinte de la référence, calculée au chargement si le seuil est fixé
+VOIX_STATS = {"phrases": 0, "refaites": 0, "essais_ecartes": 0,  # depuis le démarrage (menu ☰ → Version)
+              "similarite_moyenne": 0.0, "meilleur_essai": {}, "sauvees_par_hauteur": 0, "sous_le_seuil": 0}
+_SIM = {"somme": 0.0, "n": 0}
 
 
 def _version():
@@ -137,7 +148,63 @@ def parler(texte, graine=VOIX_GRAINE):
                                               temperature=VOIX_TEMPERATURE, top_k=30)
 
 
+def empreinte_voix(a):
+    """Empreinte du locuteur (encodeur de Qwen3-TTS lui-même), normalisée. Fil EXEC, entre deux générations."""
+    e = TTS.model.model.extract_speaker_embedding(audio=a.astype(np.float32), sr=24000).float().reshape(-1)
+    return torch.nn.functional.normalize(e, dim=0)
+
+
 def parler_controle(texte):
+    """Voix contrôlée. Phrases courtes avec seuil d'empreinte fixé : v2 (empreinte) ; sinon v1 (hauteur, en flux)."""
+    if E_REF is not None and len(texte) <= CONTROLE_V2_MAX_CAR:
+        yield from parler_controle_v2(texte)
+    else:
+        yield from parler_controle_v1(texte)
+
+
+def parler_controle_v2(texte):
+    """Jusqu'à 5 tirages (graines 1234+k), chacun mené jusqu'au bout dans le fil EXEC (pas de close() à mi-course :
+    pas d'état GPU douteux) puis noté par similarité d'empreinte avec la référence. Le 1er tirage au seuil est joué ;
+    si aucun n'y arrive, le meilleur des 5. La hauteur est un garde-fou secondaire : un tirage n'est écarté que si
+    l'empreinte ET la hauteur dérivent. Coût : la phrase n'est rendue qu'une fois générée (≈ sa durée × vitesse de la voix)."""
+    VOIX_STATS["phrases"] += 1
+    tirages = []  # (similarité, morceaux, sauvé par la hauteur)
+    for essai in range(CONTROLE_V2_ESSAIS):
+        morceaux = []
+        for morceau, sr, _ in parler(texte, VOIX_GRAINE + essai):
+            morceau = np.asarray(morceau, np.float32).reshape(-1)
+            morceaux.append(morceau if sr == 24000 else resample_poly(morceau, 24000, sr).astype(np.float32))
+        if not morceaux:
+            continue
+        audio = np.concatenate(morceaux)
+        sim = float(torch.dot(empreinte_voix(audio), E_REF))
+        h = hauteur_mediane(audio)
+        hauteur_ok = h == 0.0 or CONTROLE_V2_BORNES[0] * REF_HAUTEUR <= h <= CONTROLE_V2_BORNES[1] * REF_HAUTEUR
+        tirages.append((sim, morceaux, sim < SEUIL_EMPREINTE and hauteur_ok))
+        if sim >= SEUIL_EMPREINTE or hauteur_ok:
+            break
+        VOIX_STATS["essais_ecartes"] += 1
+        log(f"Voix : essai {essai + 1} écarté (empreinte {sim:.2f} < {SEUIL_EMPREINTE:.2f}, {h:.0f} Hz) « {texte[:40]} »")
+    if not tirages:
+        return
+    if tirages[-1][0] >= SEUIL_EMPREINTE or tirages[-1][2]:
+        rang = len(tirages) - 1  # le dernier tirage est celui qui a convenu
+    else:
+        rang = max(range(len(tirages)), key=lambda i: tirages[i][0])
+        VOIX_STATS["sous_le_seuil"] += 1
+        log(f"Voix : aucun essai au seuil, meilleur des {len(tirages)} joué (empreinte {tirages[rang][0]:.2f}) « {texte[:40]} »")
+    sim, morceaux, sauve = tirages[rang]
+    VOIX_STATS["sauvees_par_hauteur"] += int(sauve)
+    if rang:
+        VOIX_STATS["refaites"] += 1
+    VOIX_STATS["meilleur_essai"][str(rang + 1)] = VOIX_STATS["meilleur_essai"].get(str(rang + 1), 0) + 1
+    _SIM["somme"] += sim
+    _SIM["n"] += 1
+    VOIX_STATS["similarite_moyenne"] = round(_SIM["somme"] / _SIM["n"], 3)
+    yield from morceaux
+
+
+def parler_controle_v1(texte):
     """Comme parler(), en morceaux float32 à 24 kHz, mais la 1re seconde est vérifiée avant d'être rendue :
     hauteur hors de la plage de la référence → tirage abandonné et refait (autre graine)."""
     VOIX_STATS["phrases"] += 1
@@ -803,7 +870,10 @@ async def version(request):
     return web.json_response({**VERSION, "personnage": PERSONA, "voix_reference": Path(REF_AUDIO).name,
                               "hauteur_reference": round(REF_HAUTEUR or 0),
                               "plage": [round(b * (REF_HAUTEUR or 0)) for b in CONTROLE_BORNES],
-                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX, **VOIX_STATS})
+                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX,
+                              "controle": "empreinte" if E_REF is not None else "hauteur",
+                              "seuil_empreinte": SEUIL_EMPREINTE, "predictor": PREDICTOR or "0.9,50 (bibliothèque)",
+                              **VOIX_STATS})
 
 
 async def page(request):
@@ -907,6 +977,25 @@ def charger():
     REF_HAUTEUR = hauteur_mediane(ref if sr_ref == 24000 else resample_poly(ref, 24000, sr_ref).astype(np.float32))
     log(f"Voix {TAILLE_VOIX} prête ({time.perf_counter() - t:.0f} s) — hauteur de la référence {REF_HAUTEUR:.0f} Hz, "
         f"plage acceptée {CONTROLE_BORNES[0] * REF_HAUTEUR:.0f}–{CONTROLE_BORNES[1] * REF_HAUTEUR:.0f} Hz")
+    if PREDICTOR:  # hasard réduit du timbre : graphe du code predictor recapturé dans le fil qui servira (en mémoire)
+        def recapturer():
+            pg = TTS.predictor_graph
+            pg.temperature, pg.top_k = (float(v) for v in PREDICTOR.split(","))
+            pg.top_k = int(pg.top_k)
+            pg.capture(num_warmup=3)
+            list(TTS.generate_voice_clone_streaming(text="Bonjour.", language="French", ref_audio=REF_AUDIO,
+                                                    ref_text=REF_TEXTE, chunk_size=TTS_CHUNK))
+        EXEC.submit(recapturer).result()
+        log(f"Code predictor recapturé : température {PREDICTOR.split(',')[0]}, top_k {PREDICTOR.split(',')[1]}")
+    global E_REF
+    if SEUIL_EMPREINTE is not None and PERSONA == "pierre":
+        E_REF = EXEC.submit(lambda: empreinte_voix(
+            ref if sr_ref == 24000 else resample_poly(ref, 24000, sr_ref).astype(np.float32))).result()
+        log(f"Contrôle de la voix par empreinte : seuil {SEUIL_EMPREINTE:.2f}, jusqu'à {CONTROLE_V2_ESSAIS} essais "
+            f"(phrases ≤ {CONTROLE_V2_MAX_CAR} caractères ; au-delà, contrôle par hauteur)")
+    else:
+        log("Contrôle de la voix par hauteur (v1) : " + ("seuil d'empreinte non fixé (AQUAPHONE_SEUIL_EMPREINTE)"
+                                                        if SEUIL_EMPREINTE is None else f"personnage {PERSONA}, seuil calé sur Pierre"))
 
     t = time.perf_counter()
     if not SOURCE.exists():
@@ -953,7 +1042,9 @@ def charger():
     global CLIPS
     CLIPS = attente.charger(rendre_clip, ("silences coupés", TAILLE_VOIX, PAS_DIFFUSION, HAUTEUR_SOURCE, LARGEUR_VIDEO, QUALITE_JPEG,
                                           os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA, VOIX_TEMPERATURE,
-                                          "contrôle voix 1"))
+                                          # v2 : autres tirages → clips à refaire (les anciens .pkl restent sur le disque)
+                                          f"contrôle voix 2 {SEUIL_EMPREINTE} {PREDICTOR}" if E_REF is not None
+                                          else "contrôle voix 1" + (f" {PREDICTOR}" if PREDICTOR else "")))
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
