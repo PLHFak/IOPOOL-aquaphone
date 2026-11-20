@@ -32,9 +32,14 @@ from aiohttp import web  # noqa: E402
 
 CLE = os.environ.get("RUNPOD_API_KEY", "")
 ARRET_MIN = float(os.environ.get("AQUAPHONE_ARRET_MIN", "5"))
+ATTENTE_1RE_MIN = 15  # après le démarrage, délai laissé pour la 1re connexion (ensuite : ARRET_MIN)
 VOLUME, CENTRE, NOM = "hm9zp32n6a", "EU-RO-1", "aquaphone"
 IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
-CARTES = [("NVIDIA GeForce RTX 4090", 2), ("NVIDIA GeForce RTX 4090", 1), ("NVIDIA A100 80GB PCIe", 1)]
+# Par ordre de préférence (prix/h Secure Cloud) ; la 1re libre est prise. Blackwell (PRO 4500, 5090, PRO 6000) :
+# torch cu128 du venv les gère ; à surveiller dans le journal du serveur à leur 1re utilisation.
+CARTES = [("NVIDIA GeForce RTX 4090", 2), ("NVIDIA GeForce RTX 4090", 1), ("NVIDIA RTX PRO 4500 Blackwell", 1),
+          ("NVIDIA GeForce RTX 5090", 1), ("NVIDIA A100 80GB PCIe", 1), ("NVIDIA A100-SXM4-80GB", 1),
+          ("NVIDIA RTX PRO 6000 Blackwell Server Edition", 1)]
 CLE_SSH = Path.home() / ".ssh" / "aquaphone_runpod"
 PORT = 8770
 ETAT = {"phase": "inconnu", "message": "", "depuis": time.time(), "lance_a": None, "adresse": None, "pod": None}
@@ -92,12 +97,13 @@ def ssh(adresse, commande, delai=60):
     ip, port = adresse
     return subprocess.run(["ssh", "-i", str(CLE_SSH), "-p", str(port), "-o", "StrictHostKeyChecking=accept-new",
                            "-o", "ConnectTimeout=10", f"root@{ip}", commande],
-                          capture_output=True, text=True, timeout=delai)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=delai)
 
 
 def service_repond(adresse):
     try:
-        with urllib.request.urlopen(adresse + "connexion", timeout=10) as f:
+        r = urllib.request.Request(adresse + "connexion", headers={"User-Agent": "Mozilla/5.0 aquaphone"})
+        with urllib.request.urlopen(r, timeout=10) as f:  # le proxy RunPod refuse l'agent Python par défaut
             return f.status == 200
     except Exception:
         return False
@@ -132,14 +138,16 @@ def demarrer():
         if r.returncode:
             raise RuntimeError("lancement du service : " + (r.stderr or r.stdout)[-300:])
         ETAT["lance_a"] = time.time()
-        for _ in range(72):  # ≤ 6 min
-            pret = "Serveur prêt" in ssh(adr, "grep -a 'Serveur prêt' /workspace/iopool-aquaphone/labo/journaux/"
+        for _ in range(120):  # ≤ 10 min ; « Serveur pr » en ASCII (les accents ne passent pas tels quels par SSH)
+            pret = "Serveur pr" in ssh(adr, "grep -a 'Serveur pr' /workspace/iopool-aquaphone/labo/journaux/"
                                               "serveur.log | tail -1", 20).stdout
             if pret and service_repond(ETAT["adresse"]):
                 phase("pret")
                 return
             time.sleep(5)
-        raise RuntimeError("le service ne répond pas après 6 min")
+        fin = ssh(adr, "tail -c 1500 /workspace/iopool-aquaphone/labo/journaux/serveur.log", 20).stdout
+        journal("fin du journal du serveur :", fin[-1500:])
+        raise RuntimeError("le service ne répond pas après 10 min")
     except Exception as e:
         phase("erreur", str(e))
 
@@ -166,7 +174,9 @@ async def surveiller():
                         pass
                 inactif = time.time() - derniere
                 ETAT["inactif_s"] = round(inactif)
-                if inactif > ARRET_MIN * 60:
+                connu = adr and r.stdout.strip().startswith("{")  # quelqu'un s'est déjà connecté depuis ce démarrage ?
+                limite = ARRET_MIN if connu and derniere > ETAT["lance_a"] else ATTENTE_1RE_MIN
+                if inactif > limite * 60:
                     journal(f"aucune utilisation depuis {inactif / 60:.1f} min → pod {p['id']} supprimé (disque conservé)")
                     await asyncio.to_thread(graphql, f'mutation {{ podTerminate(input: {{podId: "{p["id"]}"}}) }}')
                     ETAT.update(lance_a=None, pod=None, adresse=None)
