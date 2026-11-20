@@ -59,7 +59,8 @@ def pod_actuel():
     """Le pod « aquaphone » en service (ou None)."""
     pods = graphql("query { myself { pods { id name desiredStatus machine { gpuDisplayName } "
                    "runtime { uptimeInSeconds gpus { id } ports { ip publicPort privatePort type } } } } }")["myself"]["pods"]
-    return next((p for p in pods if p["name"] == NOM and p["desiredStatus"] == "RUNNING"), None)
+    return next((p for p in pods if p["name"].startswith(NOM) and p["desiredStatus"] == "RUNNING"
+                 and p["id"] != "hn5obumrqbyns1"), None)  # ancien pod sans disque réseau : jamais piloté ici
 
 
 def creer_pod():
