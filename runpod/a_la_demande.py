@@ -1,11 +1,14 @@
 """RunPod à la demande, piloté depuis le PC labo (la clé RunPod ne quitte pas le PC).
 
-- Page d'accueil (port 8770, même mot de passe que la page Aquaphone) : état du pod + bouton « Démarrer ».
-  Démarrer = reprendre le pod arrêté (le disque /workspace est conservé), lancer le service (runpod/lancer.sh
-  par SSH), puis rediriger vers https://<pod>-8765.proxy.runpod.net/ quand il répond (≈ 3 min).
-- Surveillance : toutes les 30 s, si le pod tourne, lecture de labo/journaux/activite.json (écrit par le serveur
-  à chaque connexion et chaque question). Aucune question ni connexion depuis ARRET_MIN minutes → arrêt du pod
-  (on ne paie plus que le stockage). Un onglet resté ouvert sans parler ne le garde pas allumé.
+Disque réseau RunPod « aquaphone » (EU-RO-1, 60 Go) : code, venv, modèles, fichiers privés. Il reste ; les pods,
+eux, sont jetables : créés au démarrage sur la 1re carte libre du centre, supprimés après inactivité.
+
+- Page d'accueil (port 8770, même mot de passe que la page Aquaphone) : état + bouton « Démarrer ».
+  Démarrer = créer un pod sur le disque (2 × RTX 4090, sinon 1 × 4090, sinon 1 × A100), lancer
+  runpod/demarrage.sh par SSH, puis rediriger vers https://<pod>-8765.proxy.runpod.net/ (≈ 3-4 min).
+- Surveillance : toutes les 30 s, lecture de labo/journaux/activite.json (écrit par le serveur à chaque connexion
+  et chaque question). Rien depuis ARRET_MIN minutes → pod supprimé (le disque réseau reste, seul facturé).
+  Un onglet resté ouvert sans parler ne garde pas le pod.
 
 Usage (PC) : .venv\\Scripts\\python runpod\\a_la_demande.py      [AQUAPHONE_ARRET_MIN=5 par défaut]
 Accès public : tailscale funnel --bg --https=8443 http://127.0.0.1:8770
@@ -27,21 +30,23 @@ sys.path.insert(0, str(RACINE / "labo"))
 import acces  # noqa: E402  (lit AQUAPHONE_MOT_DE_PASSE, donc après load_dotenv)
 from aiohttp import web  # noqa: E402
 
-POD = os.environ.get("AQUAPHONE_POD", "hn5obumrqbyns1")
 CLE = os.environ.get("RUNPOD_API_KEY", "")
 ARRET_MIN = float(os.environ.get("AQUAPHONE_ARRET_MIN", "5"))
-CLE_SSH = str(Path.home() / ".ssh" / "aquaphone_runpod")
+VOLUME, CENTRE, NOM = "hm9zp32n6a", "EU-RO-1", "aquaphone"
+IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+CARTES = [("NVIDIA GeForce RTX 4090", 2), ("NVIDIA GeForce RTX 4090", 1), ("NVIDIA A100 80GB PCIe", 1)]
+CLE_SSH = Path.home() / ".ssh" / "aquaphone_runpod"
 PORT = 8770
-ADRESSE_POD = f"https://{POD}-8765.proxy.runpod.net/"
-ETAT = {"phase": "inconnu", "message": "", "depuis": time.time(), "lance_a": None}
+ETAT = {"phase": "inconnu", "message": "", "depuis": time.time(), "lance_a": None, "adresse": None, "pod": None}
 
 
 def journal(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
-def graphql(requete):
-    r = urllib.request.Request("https://api.runpod.io/graphql", data=json.dumps({"query": requete}).encode(),
+def graphql(requete, variables=None):
+    r = urllib.request.Request("https://api.runpod.io/graphql",
+                               data=json.dumps({"query": requete, "variables": variables or {}}).encode(),
                                headers={"Content-Type": "application/json", "Authorization": f"Bearer {CLE}"})
     with urllib.request.urlopen(r, timeout=30) as f:
         d = json.load(f)
@@ -50,9 +55,29 @@ def graphql(requete):
     return d["data"]
 
 
-def pod():
-    return graphql(f'query {{ pod(input: {{podId: "{POD}"}}) {{ desiredStatus runtime {{ uptimeInSeconds '
-                   'ports { ip publicPort privatePort type } } } }')["pod"]
+def pod_actuel():
+    """Le pod « aquaphone » en service (ou None)."""
+    pods = graphql("query { myself { pods { id name desiredStatus machine { gpuDisplayName } "
+                   "runtime { uptimeInSeconds gpus { id } ports { ip publicPort privatePort type } } } } }")["myself"]["pods"]
+    return next((p for p in pods if p["name"] == NOM and p["desiredStatus"] == "RUNNING"), None)
+
+
+def creer_pod():
+    q = ("mutation($i: PodFindAndDeployOnDemandInput) { podFindAndDeployOnDemand(input: $i) "
+         "{ id machine { gpuDisplayName } } }")
+    erreurs = []
+    for carte, n in CARTES:
+        i = {"name": NOM, "cloudType": "SECURE", "gpuCount": n, "gpuTypeId": carte, "dataCenterId": CENTRE,
+             "networkVolumeId": VOLUME, "volumeMountPath": "/workspace", "containerDiskInGb": 20, "imageName": IMAGE,
+             "ports": "22/tcp,8765/http", "startSsh": True,
+             "env": [{"key": "PUBLIC_KEY", "value": CLE_SSH.with_suffix(".pub").read_text().strip()}]}
+        try:
+            p = graphql(q, {"i": i})["podFindAndDeployOnDemand"]
+            journal(f"pod {p['id']} créé : {n} × {carte}")
+            return p["id"], f"{n} × {p['machine']['gpuDisplayName'] if p.get('machine') else carte}"
+        except RuntimeError as e:
+            erreurs.append(f"{n} × {carte} : {e}")
+    raise RuntimeError("aucune carte libre à " + CENTRE + " (" + " ; ".join(erreurs)[:300] + ")")
 
 
 def ssh_adresse(p):
@@ -64,46 +89,52 @@ def ssh_adresse(p):
 
 def ssh(adresse, commande, delai=60):
     ip, port = adresse
-    return subprocess.run(["ssh", "-i", CLE_SSH, "-p", str(port), "-o", "StrictHostKeyChecking=accept-new",
+    return subprocess.run(["ssh", "-i", str(CLE_SSH), "-p", str(port), "-o", "StrictHostKeyChecking=accept-new",
                            "-o", "ConnectTimeout=10", f"root@{ip}", commande],
                           capture_output=True, text=True, timeout=delai)
 
 
-def service_repond():
+def service_repond(adresse):
     try:
-        with urllib.request.urlopen(ADRESSE_POD + "connexion", timeout=10) as f:
+        with urllib.request.urlopen(adresse + "connexion", timeout=10) as f:
             return f.status == 200
     except Exception:
         return False
 
 
 def phase(p, message=""):
-    if ETAT["phase"] != p:
+    if (ETAT["phase"], ETAT["message"]) != (p, message):
         journal(f"{p} {message}")
     ETAT.update(phase=p, message=message, depuis=time.time())
 
 
 def demarrer():
-    """Reprend le pod, lance le service, attend qu'il réponde (fil séparé)."""
+    """Crée le pod (ou reprend celui qui tourne), lance le service, attend qu'il réponde (fil séparé)."""
     try:
-        phase("demarrage", "réveil du pod (cartes graphiques)…")
-        graphql(f'mutation {{ podResume(input: {{podId: "{POD}", gpuCount: 2}}) {{ id desiredStatus }} }}')
-        for _ in range(60):  # ≤ 5 min pour obtenir la machine et le SSH
-            adr = ssh_adresse(pod())
+        phase("demarrage", "recherche d'une carte graphique libre…")
+        p = pod_actuel()
+        if p is None:
+            pid, cartes = creer_pod()
+            phase("demarrage", f"machine obtenue ({cartes}), mise en route…")
+        else:
+            pid = p["id"]
+        ETAT.update(pod=pid, adresse=f"https://{pid}-8765.proxy.runpod.net/")
+        for _ in range(72):  # ≤ 6 min pour le conteneur et le SSH
+            adr = ssh_adresse(pod_actuel())
             if adr and ssh(adr, "true", 20).returncode == 0:
                 break
             time.sleep(5)
         else:
-            raise RuntimeError("le pod ne répond pas (cartes graphiques indisponibles ?)")
+            raise RuntimeError("le pod ne répond pas en SSH")
         phase("demarrage", "chargement de la voix et du visage (≈ 2 min)…")
-        r = ssh(adr, "cd /workspace/iopool-aquaphone && bash runpod/lancer.sh", 60)
+        r = ssh(adr, "bash /workspace/iopool-aquaphone/runpod/demarrage.sh", 300)
         if r.returncode:
             raise RuntimeError("lancement du service : " + (r.stderr or r.stdout)[-300:])
         ETAT["lance_a"] = time.time()
         for _ in range(72):  # ≤ 6 min
-            if service_repond() and "Serveur prêt" in ssh(adr, "grep -a 'Serveur prêt' "
-                                                           "/workspace/iopool-aquaphone/labo/journaux/serveur.log | tail -1",
-                                                           20).stdout:
+            pret = "Serveur prêt" in ssh(adr, "grep -a 'Serveur prêt' /workspace/iopool-aquaphone/labo/journaux/"
+                                              "serveur.log | tail -1", 20).stdout
+            if pret and service_repond(ETAT["adresse"]):
                 phase("pret")
                 return
             time.sleep(5)
@@ -113,19 +144,19 @@ def demarrer():
 
 
 async def surveiller():
-    """Arrêt du pod après ARRET_MIN minutes sans connexion ni question."""
+    """Suppression du pod après ARRET_MIN minutes sans connexion ni question (le disque réseau reste)."""
     while True:
         try:
-            p = await asyncio.to_thread(pod)
-            if p["desiredStatus"] != "RUNNING":
-                if ETAT["phase"] != "demarrage":
-                    phase("arrete")
-            elif ETAT["phase"] not in ("demarrage",):
+            p = await asyncio.to_thread(pod_actuel)
+            if p is None:
+                if ETAT["phase"] not in ("demarrage", "erreur"):
+                    phase("arrete", ETAT["message"] if ETAT["phase"] == "arrete" else "")
+            elif ETAT["phase"] != "demarrage":
                 if ETAT["lance_a"] is None:  # déjà allumé au lancement de ce programme : délai compté d'ici
-                    ETAT["lance_a"] = time.time()
-                    phase("pret" if await asyncio.to_thread(service_repond) else "allume")
-                adr = ssh_adresse(p)
+                    ETAT.update(lance_a=time.time(), pod=p["id"], adresse=f"https://{p['id']}-8765.proxy.runpod.net/")
+                    phase("pret" if await asyncio.to_thread(service_repond, ETAT["adresse"]) else "allume")
                 derniere = ETAT["lance_a"]
+                adr = ssh_adresse(p)
                 if adr:
                     r = await asyncio.to_thread(ssh, adr, "cat /workspace/iopool-aquaphone/labo/journaux/activite.json", 20)
                     try:
@@ -135,10 +166,10 @@ async def surveiller():
                 inactif = time.time() - derniere
                 ETAT["inactif_s"] = round(inactif)
                 if inactif > ARRET_MIN * 60:
-                    journal(f"aucune utilisation depuis {inactif / 60:.1f} min → arrêt du pod")
-                    await asyncio.to_thread(graphql, f'mutation {{ podStop(input: {{podId: "{POD}"}}) {{ id desiredStatus }} }}')
-                    ETAT["lance_a"] = None
-                    phase("arrete", f"arrêté après {ARRET_MIN:g} min sans utilisation")
+                    journal(f"aucune utilisation depuis {inactif / 60:.1f} min → pod {p['id']} supprimé (disque conservé)")
+                    await asyncio.to_thread(graphql, f'mutation {{ podTerminate(input: {{podId: "{p["id"]}"}}) }}')
+                    ETAT.update(lance_a=None, pod=None, adresse=None)
+                    phase("arrete", f"mis en veille après {ARRET_MIN:g} min sans utilisation")
         except Exception as e:
             journal("surveillance :", e)
         await asyncio.sleep(30)
@@ -153,13 +184,15 @@ border-radius:10px;border:0;background:#0ea5e9;color:#fff;font-weight:600;margin
 button:disabled{opacity:.4}p{color:#94a3b8}</style></head><body><main><h1>Aquaphone</h1>
 <p id="etat">…</p><button id="go" disabled>Démarrer l'assistant</button></main><script>
 const go = document.getElementById('go'), etat = document.getElementById('etat');
-const TEXTES = {arrete: "L'assistant est en veille.", demarrage: 'Démarrage en cours', pret: 'Prêt !',
-                allume: 'Allumé, service en cours de lancement…', erreur: 'Erreur : ', inconnu: 'Vérification…'};
+const TEXTES = {arrete: "L'assistant est en veille.", demarrage: 'Démarrage en cours (≈ 4 min)', pret: 'Prêt !',
+                allume: 'Allumé, service en cours de lancement…', erreur: 'Erreur', inconnu: 'Vérification…'};
 async function suivre() {
-  const d = await (await fetch('etat', {cache: 'no-store'})).json();
-  etat.textContent = TEXTES[d.phase] + (d.message ? ' — ' + d.message : '');
-  go.disabled = !(d.phase === 'arrete' || d.phase === 'erreur');
-  if (d.phase === 'pret') { location.href = d.adresse; return; }
+  try {
+    const d = await (await fetch('etat', {cache: 'no-store'})).json();
+    etat.textContent = TEXTES[d.phase] + (d.message ? ' — ' + d.message : '');
+    go.disabled = !(d.phase === 'arrete' || d.phase === 'erreur');
+    if (d.phase === 'pret' && d.adresse) { location.href = d.adresse; return; }
+  } catch (e) {}
   setTimeout(suivre, 3000);
 }
 go.onclick = async () => { go.disabled = true; await fetch('demarrer', {method: 'POST'}); };
@@ -172,11 +205,11 @@ async def accueil(request):
 
 
 async def etat(request):
-    return web.json_response({**ETAT, "adresse": ADRESSE_POD, "arret_min": ARRET_MIN})
+    return web.json_response({**ETAT, "arret_min": ARRET_MIN})
 
 
 async def bouton(request):
-    if ETAT["phase"] in ("arrete", "erreur"):
+    if ETAT["phase"] in ("arrete", "erreur", "inconnu"):
         ETAT["phase"] = "demarrage"
         asyncio.get_running_loop().run_in_executor(None, demarrer)
     return web.json_response(ETAT)
@@ -199,7 +232,8 @@ def main():
     app.add_routes([web.get("/", accueil), web.get("/etat", etat), web.post("/demarrer", bouton),
                     web.get("/connexion", connexion), web.post("/connexion", connexion)])
     app.on_startup.append(lancer)
-    journal(f"RunPod à la demande : pod {POD}, arrêt après {ARRET_MIN:g} min sans utilisation — http://127.0.0.1:{PORT}/")
+    journal(f"RunPod à la demande : disque {VOLUME} ({CENTRE}), arrêt après {ARRET_MIN:g} min sans utilisation "
+            f"— http://127.0.0.1:{PORT}/")
     web.run_app(app, host="127.0.0.1", port=PORT, print=None)
 
 
