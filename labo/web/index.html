@@ -323,14 +323,14 @@ function message(m) {
 // ─── Menu ☰ : personnages, dépôt photo + voix, affichage ───────────────────────────
 const menu = document.getElementById('menu'), depot = document.getElementById('depot');
 document.getElementById('menu-bouton').onclick = () => { menu.classList.add('ouvert'); chargerVersion(); chargerPersonas(); chargerPiscine(); };
-const VERSION_PAGE = 'page v3';  // change à chaque modification de cette page (vérifie que le navigateur n'a pas l'ancienne)
+const VERSION_PAGE = 'page v4';  // change à chaque modification de cette page (vérifie que le navigateur n'a pas l'ancienne)
 async function chargerVersion() {
   const el = document.getElementById('version');
   try {
     const v = await (await fetch('/version', { cache: 'no-store' })).json();
     el.innerHTML = `<b>Code ${v.code}</b> · commit ${v.commit} · ${VERSION_PAGE}<br>Démarré le ${v.demarre}<br>`
       + `Personnage : <b>${v.personnage}</b> · voix de référence ${v.voix_reference} (${v.hauteur_reference} Hz)<br>`
-      + `Contrôle voix : plage ${v.plage[0]}–${v.plage[1]} Hz · température ${v.temperature} · modèle ${v.modele_voix}<br>`
+      + `Voix : mode ${v.mode_voix} · contrôle plage ${v.plage[0]}–${v.plage[1]} Hz · température ${v.temperature} · modèle ${v.modele_voix}<br>`
       + `Depuis le démarrage : ${v.phrases} phrases, ${v.refaites} refaites, ${v.essais_ecartes} essais écartés`;
   } catch (e) { el.textContent = 'Version indisponible : ' + e.message; }
 }

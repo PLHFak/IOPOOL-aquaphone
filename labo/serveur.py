@@ -89,6 +89,13 @@ REF_TEXTE = (
 TTS_CHUNK = 4
 VOIX_TEMPERATURE = float(os.environ.get("AQUAPHONE_VOIX_TEMPERATURE", "0.6"))
 VOIX_GRAINE = 1234
+# Mode de clonage (labo2/test_etages.py, test_rejeu.py, choix de Pierre le 20/11) :
+#  « empreinte » (défaut) : le modèle ne reçoit que l'empreinte du locuteur (xvec_only) → timbre stable quel que
+#     soit le texte (ressemblance 0,984 en moyenne contre 0,937, hauteur 133-152 Hz sur les phrases qui dérivaient) ;
+#  « continuation » : ancien mode, le modèle continue l'enregistrement de référence (l'intonation du texte
+#     emporte le timbre : questions à 200 Hz et plus).
+VOIX_MODE = os.environ.get("AQUAPHONE_VOIX_MODE", "empreinte")
+VOIX_XVEC = VOIX_MODE == "empreinte"
 # Contrôle de la voix (labo2/test_controle_voix.py) : chaque phrase est un tirage au hasard et ≈ 1 sur 8
 # part loin de la référence (timbre plus aigu, « voix de femme »). La 1re seconde suffit à le voir
 # (10 ratés sur 10 détectés, 3 fausses alertes sur 80) : on la garde en réserve, on mesure la hauteur, et
@@ -145,7 +152,7 @@ def parler(texte, graine=VOIX_GRAINE):
     torch.manual_seed(graine)
     return TTS.generate_voice_clone_streaming(text=texte, language="French", ref_audio=REF_AUDIO,
                                               ref_text=REF_TEXTE, chunk_size=TTS_CHUNK,
-                                              temperature=VOIX_TEMPERATURE, top_k=30)
+                                              temperature=VOIX_TEMPERATURE, top_k=30, xvec_only=VOIX_XVEC)
 
 
 def empreinte_voix(a):
@@ -870,7 +877,7 @@ async def version(request):
     return web.json_response({**VERSION, "personnage": PERSONA, "voix_reference": Path(REF_AUDIO).name,
                               "hauteur_reference": round(REF_HAUTEUR or 0),
                               "plage": [round(b * (REF_HAUTEUR or 0)) for b in CONTROLE_BORNES],
-                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX,
+                              "temperature": VOIX_TEMPERATURE, "modele_voix": TAILLE_VOIX, "mode_voix": VOIX_MODE,
                               "controle": "empreinte" if E_REF is not None else "hauteur",
                               "seuil_empreinte": SEUIL_EMPREINTE, "predictor": PREDICTOR or "0.9,50 (bibliothèque)",
                               **VOIX_STATS})
@@ -971,7 +978,7 @@ def charger():
     # graphes CUDA capturés dans le fil qui servira ensuite
     EXEC.submit(lambda: list(TTS.generate_voice_clone_streaming(
         text="Bonjour.", language="French", ref_audio=REF_AUDIO, ref_text=REF_TEXTE,
-        chunk_size=TTS_CHUNK))).result()
+        chunk_size=TTS_CHUNK, xvec_only=VOIX_XVEC))).result()
     global REF_HAUTEUR
     ref, sr_ref = sf.read(REF_AUDIO, dtype="float32")
     REF_HAUTEUR = hauteur_mediane(ref if sr_ref == 24000 else resample_poly(ref, 24000, sr_ref).astype(np.float32))
@@ -984,7 +991,7 @@ def charger():
             pg.top_k = int(pg.top_k)
             pg.capture(num_warmup=3)
             list(TTS.generate_voice_clone_streaming(text="Bonjour.", language="French", ref_audio=REF_AUDIO,
-                                                    ref_text=REF_TEXTE, chunk_size=TTS_CHUNK))
+                                                    ref_text=REF_TEXTE, chunk_size=TTS_CHUNK, xvec_only=VOIX_XVEC))
         EXEC.submit(recapturer).result()
         log(f"Code predictor recapturé : température {PREDICTOR.split(',')[0]}, top_k {PREDICTOR.split(',')[1]}")
     global E_REF
@@ -1044,7 +1051,8 @@ def charger():
                                           os.path.getsize(REF_AUDIO), REF_TEXTE, PERSONA, VOIX_TEMPERATURE,
                                           # v2 : autres tirages → clips à refaire (les anciens .pkl restent sur le disque)
                                           f"contrôle voix 2 {SEUIL_EMPREINTE} {PREDICTOR}" if E_REF is not None
-                                          else "contrôle voix 1" + (f" {PREDICTOR}" if PREDICTOR else "")))
+                                          else "contrôle voix 1" + (f" {PREDICTOR}" if PREDICTOR else ""))
+                                         + (("empreinte seule",) if VOIX_XVEC else ()))  # nouveaux clips en mode B
     log(f"Phrases d'attente prêtes ({time.perf_counter() - t:.0f} s) : " + ", ".join(
         f"« {p} » {len(c) / IPS:.1f} s" for p, c in CLIPS.items()))
 
